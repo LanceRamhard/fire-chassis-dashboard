@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { ChassisRequest } from "@shared/schema";
 import { MANUFACTURERS } from "@/lib/chassis-data";
-import { currentFormSetter } from "./RequestForm";
+import { scheduleFormLoad } from "./RequestForm";
 import { format } from "date-fns";
 
 export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
@@ -28,11 +28,10 @@ export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
   });
 
   const handleLoad = (req: ChassisRequest) => {
-    if (currentFormSetter) {
-      currentFormSetter(req.formData as any);
-      toast({ title: "Loaded", description: `"${req.configName}" loaded.` });
-      onLoad();
-    }
+    // Write to module-level pending slot BEFORE tab switch causes RequestForm to mount
+    scheduleFormLoad(req.formData as any, req.id);
+    toast({ title: "Loaded", description: `"${req.configName}" loaded.` });
+    onLoad(); // switches tab → RequestForm mounts → reads pendingLoad
   };
 
   const filtered = requests.filter(r => {

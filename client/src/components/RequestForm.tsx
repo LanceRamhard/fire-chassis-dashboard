@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -78,6 +78,15 @@ const FORM_KEY_TO_FIELD: Partial<Record<keyof FormState, string>> = {
   salesPerson:     "salesPersons",
 };
 
+// Module-level pending load — survives tab remounts.
+// SavedRequests writes here; RequestForm reads + clears on mount.
+let pendingLoad: { form: FormState; id: number } | null = null;
+
+export function scheduleFormLoad(form: FormState, id: number) {
+  pendingLoad = { form, id };
+}
+
+// Keep legacy export so SavedRequests import doesn't break at compile time
 export let currentFormSetter: ((f: FormState) => void) | null = null;
 
 /* ── Primitive field components ─────────────────────────────────────────── */
@@ -179,6 +188,15 @@ export default function RequestForm() {
   const [editingId, setEditingId] = useState<number | undefined>();
 
   currentFormSetter = setForm;
+
+  // Consume any pending load written before this mount (from SavedRequests tab switch)
+  useEffect(() => {
+    if (pendingLoad) {
+      setForm(pendingLoad.form);
+      setEditingId(pendingLoad.id);
+      pendingLoad = null;
+    }
+  }, []);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const { data: configs = [] } = useQuery<ChassisConfig[]>({ queryKey: ["/api/configs"] });
