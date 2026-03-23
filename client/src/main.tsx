@@ -2,10 +2,12 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-// Apply saved theme before first render to prevent flash
+// Apply theme before first render to prevent flash.
+// Priority: 1) user's saved choice  2) OS preference
 (function () {
   const saved = localStorage.getItem("vipr-theme");
-  document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark");
+  const osPrefers = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", (saved === "light" || saved === "dark") ? saved : osPrefers);
 })();
 
 if (!window.location.hash) {
