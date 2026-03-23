@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+chassis.db
+chassis.db-shm
+chassis.db-wal
+*.db
+*.db-shm
+*.db-wal
+migrations/
