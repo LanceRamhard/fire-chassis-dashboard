@@ -401,48 +401,248 @@
   color: var(--vipr-orange) !important;
 }
 
-/* ── Print styles ─────────────────────────────────────────────────────────── */
-@media print {
-  .no-print { display: none !important; }
 
-  body {
-    background: white !important;
-    color: black !important;
-    font-size: 8pt;
+/* ── Print styles ─────────────────────────────────────────────────────────── */
+@page {
+  size: letter portrait;
+  margin: 0.25in 0.35in;
+}
+
+@media print {
+  /* Hide everything except the form */
+  .no-print { display: none !important; }
+  footer    { display: none !important; }
+  /* Suppress any Radix portals/dropdowns that float outside the layout */
+  [data-radix-popper-content-wrapper] { display: none !important; }
+
+  /* Base reset */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-sizing: border-box;
   }
 
+  html, body {
+    background: white !important;
+    color: #111 !important;
+    font-family: 'Inter', Arial, sans-serif !important;
+    font-size: 6.2pt !important;
+    line-height: 1.22 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Unwrap layout containers */
+  .min-h-screen { min-height: unset !important; }
+  main          { overflow: visible !important; }
+  .p-4          { padding: 0 !important; }
+
+  /* Print header — shown only in print */
+  .print-header {
+    display: block !important;
+    background: #1e3a8a !important;
+    color: white !important;
+    padding: 3pt 8pt !important;
+    border-radius: 3pt !important;
+    margin-bottom: 4pt !important;
+    text-align: center !important;
+  }
+  .print-header > div:first-child {
+    font-size: 9pt !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+  }
+  .print-header > div:last-child {
+    font-size: 7pt !important;
+    opacity: 0.9 !important;
+  }
+
+  /* Section spacing */
+  .space-y-3 > * + * { margin-top: 2.5pt !important; }
+  .space-y-3         { display: flex; flex-direction: column; gap: 2.5pt !important; }
+
+  /* ── Cards ── */
   .vipr-card {
     background: white !important;
-    border: 1px solid #ccc !important;
-    break-inside: avoid;
-    margin-bottom: 8px;
+    border: 0.75pt solid #b0bac8 !important;
+    border-radius: 3pt !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 0 !important;
   }
 
   .vipr-card-header {
     background: #1e3a8a !important;
     color: white !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    padding: 1.5pt 5pt !important;
+    border-radius: 3pt 3pt 0 0 !important;
+    border-bottom: none !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 4pt !important;
   }
+  /* Hide decorative icon in section headers */
+  .vipr-card-header > span:first-child { display: none !important; }
 
   .vipr-card-header-title {
+    font-size: 6.5pt !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.07em !important;
+    text-transform: uppercase !important;
     color: white !important;
   }
 
+  .vipr-card-body {
+    padding: 2.5pt 5pt !important;
+  }
+
+  /* ── Field labels ── */
+  .vipr-field-label {
+    font-size: 5pt !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
+    color: #555 !important;
+    margin-bottom: 1pt !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 2pt !important;
+  }
+
+  /* ── Grid overrides — force dense multi-column layouts ── */
+  .grid { display: grid !important; }
+  .gap-3, .gap-4 { gap: 3pt !important; }
+
+  /* Basic info: 7 cols → keep as-is (shrinks naturally) */
+  .lg\\:grid-cols-7 { grid-template-columns: repeat(7, 1fr) !important; }
+
+  /* 2-col spec side-by-side row */
+  .lg\\:grid-cols-2  { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-cols-1       { grid-template-columns: 1fr !important; }
+
+  /* Interior & exterior: 4-col */
+  .sm\\:grid-cols-3.lg\\:grid-cols-4,
+  .lg\\:grid-cols-4   { grid-template-columns: repeat(4, 1fr) !important; }
+
+  /* Water/pump: 4-col */
+  .sm\\:grid-cols-4   { grid-template-columns: repeat(4, 1fr) !important; }
+
+  /* Engine/axle inner grids: 2-col */
+  .grid-cols-2        { grid-template-columns: repeat(2, 1fr) !important; }
+
+  .col-span-2 { grid-column: span 2 !important; }
+
+  /* Margin helpers */
+  .mt-1\\.5, .mt-2 { margin-top: 2pt !important; }
+  .mb-4            { margin-bottom: 0 !important; }
+
+  /* ── Chassis selection row ── */
+  /* Keep as flex row, shrink gaps */
+  .flex-wrap        { flex-wrap: nowrap !important; }
+  .gap-4.flex-wrap  { gap: 5pt !important; }
+  .items-end        { align-items: flex-end !important; }
+  .min-w-\\[160px\\] { min-width: 90pt !important; }
+
+  .vipr-mfr-btn {
+    font-size: 5.5pt !important;
+    padding: 1.5pt 4pt !important;
+    border-radius: 2pt !important;
+    border: 0.5pt solid #999 !important;
+    color: #555 !important;
+    background: white !important;
+  }
+  .vipr-mfr-btn.active {
+    background: #1e3a8a !important;
+    border-color: #1e3a8a !important;
+    color: white !important;
+  }
+
+  /* ── Form controls ── */
+  .vipr-input,
+  input[type="text"],
+  input[type="date"],
+  input[type="number"] {
+    background: white !important;
+    color: #111 !important;
+    border: 0.5pt solid #aaa !important;
+    border-radius: 2pt !important;
+    font-size: 7pt !important;
+    height: 11pt !important;
+    padding: 0.5pt 3pt !important;
+    width: 100% !important;
+    display: block !important;
+  }
+
+  /* Radix Select trigger — render like a plain text input */
+  [data-radix-select-trigger],
+  .vipr-select-trigger,
+  [role="combobox"] {
+    background: white !important;
+    color: #111 !important;
+    border: 0.5pt solid #aaa !important;
+    border-radius: 2pt !important;
+    font-size: 7pt !important;
+    height: 11pt !important;
+    min-height: unset !important;
+    padding: 0.5pt 3pt !important;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+  /* Hide dropdown chevron */
+  [data-radix-select-trigger] svg,
+  .vipr-select-trigger svg { display: none !important; }
+
+  /* Checkboxes inline with label */
+  input[type="checkbox"] {
+    width: 7pt !important;
+    height: 7pt !important;
+    accent-color: #1e3a8a !important;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+  }
+  label.flex.items-center {
+    gap: 2pt !important;
+    font-size: 6pt !important;
+    color: #333 !important;
+    padding: 1pt 0 !important;
+  }
+  label.flex.items-center span { font-size: 6pt !important; color: #333 !important; }
+
+  /* Code badges */
   .code-badge {
     background: #fff3e0 !important;
-    color: #e65100 !important;
-    border-color: #ffcc80 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    color: #c45000 !important;
+    border: 0.5pt solid #ffc999 !important;
+    font-size: 5pt !important;
+    padding: 0.5pt 2pt !important;
+    border-radius: 1.5pt !important;
   }
 
-  .vipr-input, select, input {
+  /* Textarea (comments) */
+  textarea {
     background: white !important;
-    color: black !important;
-    border: 1px solid #999 !important;
+    color: #111 !important;
+    border: 0.5pt solid #aaa !important;
+    border-radius: 2pt !important;
+    font-size: 7pt !important;
+    min-height: 20pt !important;
+    padding: 2pt 4pt !important;
+    width: 100% !important;
+    resize: none !important;
   }
 
-  label, .vipr-field-label { color: #333 !important; }
-  .vipr-text-muted, .text-muted-foreground { color: #666 !important; }
+  /* Active model badge in chassis section */
+  .mfr-freightliner,
+  .mfr-international,
+  .mfr-kenworth,
+  .mfr-peterbilt {
+    background: #e8edf5 !important;
+    color: #1e3a8a !important;
+    border: 0.5pt solid #b0bac8 !important;
+    font-size: 5.5pt !important;
+    padding: 1pt 4pt !important;
+  }
 }
