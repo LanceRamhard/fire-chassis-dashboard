@@ -39,7 +39,7 @@
 
     --radius:              0.375rem;
 
-    /* Custom tokens */
+    /* Custom tokens — dark (default) */
     --vipr-orange:         #f97316;
     --vipr-orange-dim:     #c2590f;
     --vipr-orange-glow:    rgba(249,115,22,0.15);
@@ -52,6 +52,43 @@
     --vipr-text-faint:     #484f58;
     --vipr-green:          #3fb950;
     --vipr-red:            #f85149;
+  }
+
+  /* ── Light mode overrides ───────────────────────────────────────────────── */
+  [data-theme="light"] {
+    --background:          0 0% 98%;
+    --foreground:          220 20% 12%;
+    --card:                0 0% 100%;
+    --card-foreground:     220 20% 12%;
+    --popover:             0 0% 100%;
+    --popover-foreground:  220 20% 12%;
+    --primary:             28 95% 50%;
+    --primary-foreground:  0 0% 100%;
+    --secondary:           220 10% 92%;
+    --secondary-foreground:220 15% 25%;
+    --muted:               220 10% 93%;
+    --muted-foreground:    220 10% 42%;
+    --accent:              28 95% 50%;
+    --accent-foreground:   0 0% 100%;
+    --destructive:         0 70% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border:              220 15% 82%;
+    --input:               220 15% 82%;
+    --ring:                28 95% 50%;
+
+    /* VIPR light custom tokens */
+    --vipr-orange:         #ea6c0a;
+    --vipr-orange-dim:     #c2590f;
+    --vipr-orange-glow:    rgba(234,108,10,0.12);
+    --vipr-bg:             #f3f5f8;
+    --vipr-surface:        #ffffff;
+    --vipr-surface-2:      #eef1f6;
+    --vipr-border:         #d0d7e3;
+    --vipr-text:           #1a2030;
+    --vipr-text-muted:     #5a6478;
+    --vipr-text-faint:     #9aa3b4;
+    --vipr-green:          #1a8a36;
+    --vipr-red:            #c0392b;
   }
 }
 
@@ -329,7 +366,7 @@
 }
 
 /* ── shadcn overrides for dark theme ────────────────────────────────────── */
-.dark, [data-theme="dark"], body {
+.dark, [data-theme="dark"] {
   --background:          220 15% 7%;
   --foreground:          220 10% 92%;
   --card:                220 14% 10%;
@@ -351,7 +388,7 @@
   --ring:                28 95% 55%;
 }
 
-/* Force select content to dark */
+/* Force select content to use theme tokens */
 [data-radix-popper-content-wrapper] [role="listbox"],
 [data-radix-select-content] {
   background: var(--vipr-surface-2) !important;

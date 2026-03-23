@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ClipboardList, Settings, History, Flame } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ClipboardList, Settings, History, Flame, Sun, Moon } from "lucide-react";
 import RequestForm from "@/components/RequestForm";
 import SavedRequests from "@/components/SavedRequests";
 import ConfigAdmin from "@/components/ConfigAdmin";
@@ -13,8 +13,24 @@ const TABS = [
 
 type TabId = typeof TABS[number]["id"];
 
+function useTheme() {
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("vipr-theme");
+    return (saved === "light" || saved === "dark") ? saved : "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("vipr-theme", theme);
+  }, [theme]);
+
+  const toggle = () => setTheme(t => t === "dark" ? "light" : "dark");
+  return { theme, toggle };
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<TabId>("request");
+  const { theme, toggle } = useTheme();
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--vipr-bg)", color: "var(--vipr-text)" }}>
@@ -67,11 +83,28 @@ export default function Dashboard() {
           })}
         </nav>
 
-        {/* Right badge — matches VIPR's "N. ROCKIES — GREAT PLAINS" badge */}
+        {/* Right — theme toggle + badge */}
         <div className="ml-auto flex items-center gap-2">
+
+          {/* Dark / Light toggle */}
+          <button
+            onClick={toggle}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="no-print flex items-center justify-center w-7 h-7 rounded transition-all"
+            style={{
+              background: "var(--vipr-surface-2)",
+              border: "1px solid var(--vipr-border)",
+              color: "var(--vipr-text-muted)",
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = "var(--vipr-orange)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--vipr-orange)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = "var(--vipr-text-muted)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--vipr-border)"; }}
+          >
+            {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+          </button>
+
           <div className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold tracking-widest uppercase"
             style={{
-              background: "rgba(249,115,22,0.12)",
+              background: "var(--vipr-orange-glow)",
               border: "1px solid rgba(249,115,22,0.3)",
               color: "var(--vipr-orange)",
               fontSize: "10px",
