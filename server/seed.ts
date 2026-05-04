@@ -42,16 +42,9 @@ export function createTables() {
       if_value             TEXT    NOT NULL,
       then_field           TEXT    NOT NULL,
       then_allowed_values  TEXT    NOT NULL,
-      action               TEXT    NOT NULL DEFAULT 'filter',
       updated_at           INTEGER NOT NULL
     );
   `);
-
-  // Idempotent migration: add `action` to dependency_rules for pre-existing DBs.
-  const cols = sqlite.prepare(`PRAGMA table_info(dependency_rules)`).all() as { name: string }[];
-  if (!cols.some(c => c.name === "action")) {
-    sqlite.exec(`ALTER TABLE dependency_rules ADD COLUMN action TEXT NOT NULL DEFAULT 'filter'`);
-  }
 }
 
 // ─── Default seed data ────────────────────────────────────────────────────────

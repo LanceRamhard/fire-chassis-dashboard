@@ -56,19 +56,14 @@ export type InsertDropdownOptions = z.infer<typeof insertDropdownOptionsSchema>;
 export type DropdownOptions = typeof dropdownOptions.$inferSelect;
 
 // ─── Dependency Rules ────────────────────────────────────────────────────────
-// action = "filter": when ifField=ifValue, restrict thenField options to thenAllowedValues
-// action = "hide":   when ifField=ifValue, hide thenField from the request form
 export const dependencyRules = sqliteTable("dependency_rules", {
   id:                integer("id").primaryKey({ autoIncrement: true }),
   ifField:           text("if_field").notNull(),
   ifValue:           text("if_value").notNull(),
   thenField:         text("then_field").notNull(),
   thenAllowedValues: text("then_allowed_values").notNull(), // JSON stored as text
-  action:            text("action").notNull().default("filter"),
   updatedAt:         integer("updated_at", { mode: "timestamp" }).notNull(),
 });
-
-export type DependencyRuleAction = "filter" | "hide";
 
 export const insertDependencyRuleSchema = createInsertSchema(dependencyRules).omit({
   id: true,

@@ -104,7 +104,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       ifValue:           z.string().min(1),
       thenField:         z.string().min(1),
       thenAllowedValues: z.array(z.string()),
-      action:            z.enum(["filter", "hide"]).optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
@@ -112,16 +111,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.patch("/api/dependency-rules/:id", async (req, res) => {
-    const schema = z.object({
-      ifField:           z.string().min(1).optional(),
-      ifValue:           z.string().min(1).optional(),
-      thenField:         z.string().min(1).optional(),
-      thenAllowedValues: z.array(z.string()).optional(),
-      action:            z.enum(["filter", "hide"]).optional(),
-    });
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    const updated = await storage.updateDependencyRule(Number(req.params.id), parsed.data as any);
+    const updated = await storage.updateDependencyRule(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);
   });
