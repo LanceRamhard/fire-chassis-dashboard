@@ -18,6 +18,7 @@ import type { ChassisConfig, DropdownOptions, DependencyRule } from "@shared/sch
 import {
   MANUFACTURERS, ALL_ENGINES, ALL_HP, ALL_TRANSMISSIONS,
   ALL_FRONT_AXLES, ALL_REAR_AXLES, ALL_CABS, ALL_BRAKES, APPARATUS_TYPES,
+  FIELD_DISPLAY_META, HIDDEN_FIELDS_KEY, getHiddenFields,
 } from "@/lib/chassis-data";
 
 // ─── Shared field metadata ────────────────────────────────────────────────────
@@ -119,6 +120,21 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
     apparatusTypes: dr.apparatusTypes ?? getOptions("apparatusTypes", APPARATUS_TYPES).map(a => a.id),
   });
 
+  // Field visibility — set of formKeys that are HIDDEN for this model.
+  const [hiddenFields, setHiddenFields] = useState<Set<string>>(
+    new Set(getHiddenFields(existing?.fieldRules as Record<string, unknown> | null | undefined))
+  );
+  const toggleField = (key: string) =>
+    setHiddenFields(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  const fieldsBySection = FIELD_DISPLAY_META.reduce<Record<string, typeof FIELD_DISPLAY_META>>((acc, f) => {
+    (acc[f.section] ??= []).push(f);
+    return acc;
+  }, {});
+
   // When dialog opens, refresh rules from current live options
   const handleOpen = (val: boolean) => {
     if (val && !existing) {
@@ -143,7 +159,7 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
       manufacturer,
       modelId: modelId.trim().toLowerCase().replace(/\s+/g, "_"),
       modelLabel: modelLabel.trim(),
-      fieldRules: rules,
+      fieldRules: { ...rules, [HIDDEN_FIELDS_KEY]: Array.from(hiddenFields) },
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/configs"] });
@@ -190,6 +206,59 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
           <OptionGroup title="Rear Axles"      options={getOptions("rearAxles", ALL_REAR_AXLES)}      selected={rules.rearAxles}      onChange={ids => setRule("rearAxles", ids)} />
           <OptionGroup title="Brakes"          options={getOptions("brakes", ALL_BRAKES)}             selected={rules.brakes}         onChange={ids => setRule("brakes", ids)} />
           <OptionGroup title="Apparatus Types" options={getOptions("apparatusTypes", APPARATUS_TYPES)} selected={rules.apparatusTypes} onChange={ids => setRule("apparatusTypes", ids)} />
+        </div>
+
+        {/* ── Visible Fields panel ─────────────────────────────────────── */}
+        <hr style={{ borderColor: "var(--vipr-border)", margin: "16px 0 12px" }} />
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--vipr-text)", letterSpacing: "0.04em" }}>
+                Visible Fields
+              </div>
+              <div style={{ fontSize: "10px", color: "var(--vipr-text-faint)" }}>
+                Uncheck any field to hide it from the request form when this model is selected
+                ({FIELD_DISPLAY_META.length - hiddenFields.size} of {FIELD_DISPLAY_META.length} visible)
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button type="button"
+                style={{ fontSize: "10px", color: "var(--vipr-orange)", background: "none", border: "none", cursor: "pointer" }}
+                onClick={() => setHiddenFields(new Set())}>
+                Show all
+              </button>
+              <button type="button"
+                style={{ fontSize: "10px", color: "var(--vipr-text-muted)", background: "none", border: "none", cursor: "pointer" }}
+                onClick={() => setHiddenFields(new Set(FIELD_DISPLAY_META.map(f => f.key)))}>
+                Hide all
+              </button>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            {Object.entries(fieldsBySection).map(([section, fields]) => (
+              <div key={section} style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", borderRadius: "4px", padding: "8px 10px" }}>
+                <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--vipr-text-muted)", marginBottom: "6px" }}>
+                  {section}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px" }}>
+                  {fields.map(f => {
+                    const visible = !hiddenFields.has(f.key);
+                    return (
+                      <label key={f.key} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                        <input type="checkbox" className="vipr-checkbox"
+                          checked={visible}
+                          onChange={() => toggleField(f.key)}
+                          data-testid={`checkbox-field-${f.key}`} />
+                        <span style={{ fontSize: "11px", color: visible ? "var(--vipr-text-muted)" : "var(--vipr-text-faint)", textDecoration: visible ? "none" : "line-through" }}>
+                          {f.label}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <DialogFooter style={{ marginTop: "16px" }}>

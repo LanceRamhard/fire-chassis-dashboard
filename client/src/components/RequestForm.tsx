@@ -13,7 +13,7 @@ import {
   SUN_VISORS, RAM_MOUNTS, REAR_VIEW_CAMERAS,
   PAINT_SCHEMES, AIR_HORN_CONTROLS, TANK_SCR, AIR_HORNS, BUMPERS, WHEELS,
   SALES_PERSONS, US_STATES, PTO_CONFIGS, PUMP_TYPES,
-  filterOptions,
+  filterOptions, getHiddenFields,
 } from "@/lib/chassis-data";
 
 type OptionItem = { id: string; label: string; code?: string };
@@ -248,6 +248,17 @@ export default function RequestForm() {
   );
   const modelRules = (activeConfig?.fieldRules ?? {}) as Record<string, string[]>;
 
+  // Per-model field visibility. When no model is selected (or the model has
+  // no hidden list), every field renders.
+  const hiddenFields = useMemo(
+    () => new Set(getHiddenFields(activeConfig?.fieldRules as Record<string, unknown> | null | undefined)),
+    [activeConfig]
+  );
+  const isHidden = (formKey: keyof FormState) => hiddenFields.has(formKey as string);
+  const show = (formKey: keyof FormState, node: React.ReactNode) =>
+    isHidden(formKey) ? null : node;
+  const anyVisible = (...keys: (keyof FormState)[]) => keys.some(k => !isHidden(k));
+
   const getOptions = useCallback((formKey: keyof FormState): OptionItem[] => {
     const fieldKey = FORM_KEY_TO_FIELD[formKey];
     if (!fieldKey) return [];
@@ -399,17 +410,19 @@ export default function RequestForm() {
       <div className="space-y-3">
 
         {/* ── BASIC INFO ───────────────────────────────────────────────── */}
-        <VSection title="Basic Information" icon={<FileText size={13} />}>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-            <VInput label="Config Name" value={form.configName} onChange={up("configName")} placeholder="Auto-generated" />
-            <VInput label="Request Date" value={form.requestDate} onChange={up("requestDate")} type="date" />
-            <VInput label="Date Required" value={form.dateRequired} onChange={up("dateRequired")} type="date" />
-            <VSelect label="Sales Person" value={form.salesPerson} onChange={up("salesPerson")} options={liveOptions.salesPersons ?? SALES_PERSONS} />
-            <VInput label="Customer Name" value={form.customerName} onChange={up("customerName")} placeholder="Customer name" />
-            <VInput label="City" value={form.city} onChange={up("city")} placeholder="City" />
-            <VSelect label="State" value={form.state} onChange={up("state")} options={US_STATES} />
-          </div>
-        </VSection>
+        {anyVisible("configName","requestDate","dateRequired","salesPerson","customerName","city","state") && (
+          <VSection title="Basic Information" icon={<FileText size={13} />}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+              {show("configName",   <VInput label="Config Name" value={form.configName} onChange={up("configName")} placeholder="Auto-generated" />)}
+              {show("requestDate",  <VInput label="Request Date" value={form.requestDate} onChange={up("requestDate")} type="date" />)}
+              {show("dateRequired", <VInput label="Date Required" value={form.dateRequired} onChange={up("dateRequired")} type="date" />)}
+              {show("salesPerson",  <VSelect label="Sales Person" value={form.salesPerson} onChange={up("salesPerson")} options={liveOptions.salesPersons ?? SALES_PERSONS} />)}
+              {show("customerName", <VInput label="Customer Name" value={form.customerName} onChange={up("customerName")} placeholder="Customer name" />)}
+              {show("city",         <VInput label="City" value={form.city} onChange={up("city")} placeholder="City" />)}
+              {show("state",        <VSelect label="State" value={form.state} onChange={up("state")} options={US_STATES} />)}
+            </div>
+          </VSection>
+        )}
 
         {/* ── CHASSIS SELECTION ────────────────────────────────────────── */}
         <VSection title="Chassis Selection" icon={<Truck size={13} />}>
@@ -444,14 +457,16 @@ export default function RequestForm() {
             </div>
 
             {/* Apparatus type */}
-            <div className="min-w-[160px]">
-              <VSelect
-                label="Apparatus Type"
-                value={form.apparatusType}
-                onChange={up("apparatusType")}
-                options={getOptions("apparatusType")}
-              />
-            </div>
+            {show("apparatusType",
+              <div className="min-w-[160px]">
+                <VSelect
+                  label="Apparatus Type"
+                  value={form.apparatusType}
+                  onChange={up("apparatusType")}
+                  options={getOptions("apparatusType")}
+                />
+              </div>
+            )}
 
             {/* Active model badge */}
             {form.manufacturer && form.truckModel && (
@@ -469,112 +484,136 @@ export default function RequestForm() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
 
           {/* Engine & Drivetrain */}
-          <VSection title="Engine & Drivetrain" icon={<Cog size={13} />}>
-            <div className="grid grid-cols-2 gap-3">
-              <VSelect label="Engine" code="101" value={form.engine} onChange={up("engine")}
-                options={getOptions("engine")} disabled={!form.truckModel} />
-              <VSelect label="Engine HP" value={form.engineHp} onChange={up("engineHp")}
-                options={getOptions("engineHp")} disabled={!form.truckModel} />
-              <VSelect label="Engine Brake" code="128" value={form.engineBrake} onChange={up("engineBrake")}
-                options={getOptions("engineBrake")} />
-              <VSelect label="Transmission" code="342" value={form.transmission} onChange={up("transmission")}
-                options={getOptions("transmission")} disabled={!form.truckModel} />
-              <VInput label="Top Speed" code="79A" value={form.topSpeed} onChange={up("topSpeed")}
-                placeholder="mph" type="number" />
-            </div>
-          </VSection>
+          {anyVisible("engine","engineHp","engineBrake","transmission","topSpeed") && (
+            <VSection title="Engine & Drivetrain" icon={<Cog size={13} />}>
+              <div className="grid grid-cols-2 gap-3">
+                {show("engine",       <VSelect label="Engine" code="101" value={form.engine} onChange={up("engine")}
+                  options={getOptions("engine")} disabled={!form.truckModel} />)}
+                {show("engineHp",     <VSelect label="Engine HP" value={form.engineHp} onChange={up("engineHp")}
+                  options={getOptions("engineHp")} disabled={!form.truckModel} />)}
+                {show("engineBrake",  <VSelect label="Engine Brake" code="128" value={form.engineBrake} onChange={up("engineBrake")}
+                  options={getOptions("engineBrake")} />)}
+                {show("transmission", <VSelect label="Transmission" code="342" value={form.transmission} onChange={up("transmission")}
+                  options={getOptions("transmission")} disabled={!form.truckModel} />)}
+                {show("topSpeed",     <VInput label="Top Speed" code="79A" value={form.topSpeed} onChange={up("topSpeed")}
+                  placeholder="mph" type="number" />)}
+              </div>
+            </VSection>
+          )}
 
           {/* Axles & Brakes */}
-          <VSection title="Axles & Brakes" icon={<Cog size={13} />}>
-            <div className="grid grid-cols-2 gap-3">
-              <VSelect label="Cab Config" code="829" value={form.cabConfig} onChange={up("cabConfig")}
-                options={getOptions("cabConfig")} disabled={!form.truckModel} />
-              <VInput label="CA Measurement" value={form.caMeasurement} onChange={up("caMeasurement")} placeholder='e.g. 84"' />
-              <div>
-                <VSelect label="Front Axle" code="400" value={form.frontAxle} onChange={up("frontAxle")}
-                  options={getOptions("frontAxle")} disabled={!form.truckModel} />
-                <div className="mt-1.5"><VCheck label="AWD" code="400" checked={form.awd} onChange={up("awd")} /></div>
+          {anyVisible("cabConfig","caMeasurement","frontAxle","awd","rearAxle","diffLock","brakes") && (
+            <VSection title="Axles & Brakes" icon={<Cog size={13} />}>
+              <div className="grid grid-cols-2 gap-3">
+                {show("cabConfig",     <VSelect label="Cab Config" code="829" value={form.cabConfig} onChange={up("cabConfig")}
+                  options={getOptions("cabConfig")} disabled={!form.truckModel} />)}
+                {show("caMeasurement", <VInput label="CA Measurement" value={form.caMeasurement} onChange={up("caMeasurement")} placeholder='e.g. 84"' />)}
+                {anyVisible("frontAxle","awd") && (
+                  <div>
+                    {show("frontAxle", <VSelect label="Front Axle" code="400" value={form.frontAxle} onChange={up("frontAxle")}
+                      options={getOptions("frontAxle")} disabled={!form.truckModel} />)}
+                    {show("awd", <div className="mt-1.5"><VCheck label="AWD" code="400" checked={form.awd} onChange={up("awd")} /></div>)}
+                  </div>
+                )}
+                {anyVisible("rearAxle","diffLock") && (
+                  <div>
+                    {show("rearAxle", <VSelect label="Rear Axle" code="420" value={form.rearAxle} onChange={up("rearAxle")}
+                      options={getOptions("rearAxle")} disabled={!form.truckModel} />)}
+                    {show("diffLock", <div className="mt-1.5"><VCheck label="Diff Lock" code="452" checked={form.diffLock} onChange={up("diffLock")} /></div>)}
+                  </div>
+                )}
+                {show("brakes",
+                  <div className="col-span-2">
+                    <VSelect label="Brakes" value={form.brakes} onChange={up("brakes")}
+                      options={getOptions("brakes")} />
+                  </div>
+                )}
               </div>
-              <div>
-                <VSelect label="Rear Axle" code="420" value={form.rearAxle} onChange={up("rearAxle")}
-                  options={getOptions("rearAxle")} disabled={!form.truckModel} />
-                <div className="mt-1.5"><VCheck label="Diff Lock" code="452" checked={form.diffLock} onChange={up("diffLock")} /></div>
-              </div>
-              <div className="col-span-2">
-                <VSelect label="Brakes" value={form.brakes} onChange={up("brakes")}
-                  options={getOptions("brakes")} />
-              </div>
-            </div>
-          </VSection>
+            </VSection>
+          )}
         </div>
 
         {/* ── Water & Pump ─────────────────────────────────────────────── */}
-        <VSection title="Water & Pump Systems" icon={<Droplets size={13} />}>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <VInput label="Tank Size (gal)" value={form.waterTankSize} onChange={up("waterTankSize")} placeholder="gallons" type="number" />
-            <VSelect label="Pump Type" code="AA3" value={form.pumpType} onChange={up("pumpType")} options={getOptions("pumpType")} />
-            <div className="col-span-2">
-              <VSelect label="PTO Configuration" code="362" value={form.ptoConfig} onChange={up("ptoConfig")} options={getOptions("ptoConfig")} />
+        {anyVisible("waterTankSize","pumpType","ptoConfig","heatExchanger") && (
+          <VSection title="Water & Pump Systems" icon={<Droplets size={13} />}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {show("waterTankSize", <VInput label="Tank Size (gal)" value={form.waterTankSize} onChange={up("waterTankSize")} placeholder="gallons" type="number" />)}
+              {show("pumpType",      <VSelect label="Pump Type" code="AA3" value={form.pumpType} onChange={up("pumpType")} options={getOptions("pumpType")} />)}
+              {show("ptoConfig",
+                <div className="col-span-2">
+                  <VSelect label="PTO Configuration" code="362" value={form.ptoConfig} onChange={up("ptoConfig")} options={getOptions("ptoConfig")} />
+                </div>
+              )}
             </div>
-          </div>
-          <div className="mt-2">
-            <VCheck label="Heat Exchanger Valves at Rear of Cab" code="689/724" checked={form.heatExchanger} onChange={up("heatExchanger")} />
-          </div>
-        </VSection>
+            {show("heatExchanger",
+              <div className="mt-2">
+                <VCheck label="Heat Exchanger Valves at Rear of Cab" code="689/724" checked={form.heatExchanger} onChange={up("heatExchanger")} />
+              </div>
+            )}
+          </VSection>
+        )}
 
         {/* ── Interior ────────────────────────────────────────────────── */}
-        <VSection title="Interior Configuration" icon={<Armchair size={13} />}>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            <VSelect label="Driver Seat" code="756" value={form.driverSeat} onChange={up("driverSeat")} options={getOptions("driverSeat")} />
-            <VSelect label="Officer Seat" code="760" value={form.officerSeat} onChange={up("officerSeat")} options={getOptions("officerSeat")} />
-            <VSelect label="Rear Seats" code="762" value={form.rearSeats} onChange={up("rearSeats")} options={getOptions("rearSeats")} />
-            <VSelect label="Seat Material" code="758" value={form.seatMaterial} onChange={up("seatMaterial")} options={getOptions("seatMaterial")} />
-            <VSelect label="Sun Visor" code="764" value={form.sunVisor} onChange={up("sunVisor")} options={getOptions("sunVisor")} />
-            <VSelect label="Ram Mount" value={form.ramMount} onChange={up("ramMount")} options={getOptions("ramMount")} />
-            <VSelect label="Rear View Camera" value={form.rearViewCamera} onChange={up("rearViewCamera")} options={getOptions("rearViewCamera")} />
-          </div>
-        </VSection>
+        {anyVisible("driverSeat","officerSeat","rearSeats","seatMaterial","sunVisor","ramMount","rearViewCamera") && (
+          <VSection title="Interior Configuration" icon={<Armchair size={13} />}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {show("driverSeat",     <VSelect label="Driver Seat" code="756" value={form.driverSeat} onChange={up("driverSeat")} options={getOptions("driverSeat")} />)}
+              {show("officerSeat",    <VSelect label="Officer Seat" code="760" value={form.officerSeat} onChange={up("officerSeat")} options={getOptions("officerSeat")} />)}
+              {show("rearSeats",      <VSelect label="Rear Seats" code="762" value={form.rearSeats} onChange={up("rearSeats")} options={getOptions("rearSeats")} />)}
+              {show("seatMaterial",   <VSelect label="Seat Material" code="758" value={form.seatMaterial} onChange={up("seatMaterial")} options={getOptions("seatMaterial")} />)}
+              {show("sunVisor",       <VSelect label="Sun Visor" code="764" value={form.sunVisor} onChange={up("sunVisor")} options={getOptions("sunVisor")} />)}
+              {show("ramMount",       <VSelect label="Ram Mount" value={form.ramMount} onChange={up("ramMount")} options={getOptions("ramMount")} />)}
+              {show("rearViewCamera", <VSelect label="Rear View Camera" value={form.rearViewCamera} onChange={up("rearViewCamera")} options={getOptions("rearViewCamera")} />)}
+            </div>
+          </VSection>
+        )}
 
         {/* ── Exterior ────────────────────────────────────────────────── */}
-        <VSection title="Exterior Configuration" icon={<Palette size={13} />}>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            <VInput label="Paint Color" code="065" value={form.paintColor} onChange={up("paintColor")} placeholder="e.g. Red" />
-            <VInput label="Paint Code" value={form.paintCode} onChange={up("paintCode")} placeholder="e.g. PPG 70117" />
-            <VSelect label="Paint Scheme" value={form.paintScheme} onChange={up("paintScheme")} options={getOptions("paintScheme")} />
-            <VSelect label="Air Horn Controls" code="264" value={form.airHornControls} onChange={up("airHornControls")} options={getOptions("airHornControls")} />
-            <VSelect label="Tank / SCR" code="677" value={form.tankScr} onChange={up("tankScr")} options={getOptions("tankScr")} />
-            <VSelect label="Air Horns" code="727" value={form.airHorns} onChange={up("airHorns")} options={getOptions("airHorns")} />
-            <VSelect label="Bumper" code="556" value={form.bumper} onChange={up("bumper")} options={getOptions("bumper")} />
-            <VSelect label="Wheels" code="502/505" value={form.wheels} onChange={up("wheels")} options={getOptions("wheels")} />
-            <div className="flex items-end">
-              <VCheck label="LED Headlights" code="312" checked={form.ledHeadlights} onChange={up("ledHeadlights")} />
+        {anyVisible("paintColor","paintCode","paintScheme","airHornControls","tankScr","airHorns","bumper","wheels","ledHeadlights") && (
+          <VSection title="Exterior Configuration" icon={<Palette size={13} />}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {show("paintColor",      <VInput label="Paint Color" code="065" value={form.paintColor} onChange={up("paintColor")} placeholder="e.g. Red" />)}
+              {show("paintCode",       <VInput label="Paint Code" value={form.paintCode} onChange={up("paintCode")} placeholder="e.g. PPG 70117" />)}
+              {show("paintScheme",     <VSelect label="Paint Scheme" value={form.paintScheme} onChange={up("paintScheme")} options={getOptions("paintScheme")} />)}
+              {show("airHornControls", <VSelect label="Air Horn Controls" code="264" value={form.airHornControls} onChange={up("airHornControls")} options={getOptions("airHornControls")} />)}
+              {show("tankScr",         <VSelect label="Tank / SCR" code="677" value={form.tankScr} onChange={up("tankScr")} options={getOptions("tankScr")} />)}
+              {show("airHorns",        <VSelect label="Air Horns" code="727" value={form.airHorns} onChange={up("airHorns")} options={getOptions("airHorns")} />)}
+              {show("bumper",          <VSelect label="Bumper" code="556" value={form.bumper} onChange={up("bumper")} options={getOptions("bumper")} />)}
+              {show("wheels",          <VSelect label="Wheels" code="502/505" value={form.wheels} onChange={up("wheels")} options={getOptions("wheels")} />)}
+              {show("ledHeadlights",
+                <div className="flex items-end">
+                  <VCheck label="LED Headlights" code="312" checked={form.ledHeadlights} onChange={up("ledHeadlights")} />
+                </div>
+              )}
             </div>
-          </div>
-        </VSection>
+          </VSection>
+        )}
 
         {/* ── Comments ────────────────────────────────────────────────── */}
-        <VSection title="Additional Comments & Specifications" icon={<FileText size={13} />}>
-          <textarea
-            value={form.comments}
-            onChange={e => up("comments")(e.target.value)}
-            rows={4}
-            placeholder="Enter any additional specifications, requirements, or comments…"
-            data-testid="textarea-comments"
-            style={{
-              width: "100%",
-              background: "var(--vipr-bg)",
-              border: "1px solid var(--vipr-border)",
-              color: "var(--vipr-text)",
-              borderRadius: "4px",
-              padding: "8px",
-              fontSize: "12px",
-              resize: "vertical",
-              outline: "none",
-            }}
-            onFocus={e => { e.target.style.borderColor = "var(--vipr-orange)"; }}
-            onBlur={e => { e.target.style.borderColor = "var(--vipr-border)"; }}
-          />
-        </VSection>
+        {show("comments",
+          <VSection title="Additional Comments & Specifications" icon={<FileText size={13} />}>
+            <textarea
+              value={form.comments}
+              onChange={e => up("comments")(e.target.value)}
+              rows={4}
+              placeholder="Enter any additional specifications, requirements, or comments…"
+              data-testid="textarea-comments"
+              style={{
+                width: "100%",
+                background: "var(--vipr-bg)",
+                border: "1px solid var(--vipr-border)",
+                color: "var(--vipr-text)",
+                borderRadius: "4px",
+                padding: "8px",
+                fontSize: "12px",
+                resize: "vertical",
+                outline: "none",
+              }}
+              onFocus={e => { e.target.style.borderColor = "var(--vipr-orange)"; }}
+              onBlur={e => { e.target.style.borderColor = "var(--vipr-border)"; }}
+            />
+          </VSection>
+        )}
 
       </div>
     </div>
