@@ -226,6 +226,7 @@ export class DatabaseStorage implements IStorage {
       ifValue:           rule.ifValue,
       thenField:         rule.thenField,
       thenAllowedValues: toJson(rule.thenAllowedValues),
+      action:            rule.action ?? "filter",
       updatedAt:         new Date(),
     }).returning().get();
     return deserializeDependency(result);
@@ -237,6 +238,7 @@ export class DatabaseStorage implements IStorage {
     if (rule.ifValue           !== undefined) updates.ifValue           = rule.ifValue;
     if (rule.thenField         !== undefined) updates.thenField         = rule.thenField;
     if (rule.thenAllowedValues !== undefined) updates.thenAllowedValues = toJson(rule.thenAllowedValues);
+    if (rule.action            !== undefined) updates.action            = rule.action;
     const result = db.update(dependencyRules).set(updates).where(eq(dependencyRules.id, id)).returning().get();
     return result ? deserializeDependency(result) : undefined;
   }

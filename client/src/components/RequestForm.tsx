@@ -249,11 +249,21 @@ export default function RequestForm() {
   const modelRules = (activeConfig?.fieldRules ?? {}) as Record<string, string[]>;
 
   // Per-model field visibility. When no model is selected (or the model has
-  // no hidden list), every field renders.
-  const hiddenFields = useMemo(
-    () => new Set(getHiddenFields(activeConfig?.fieldRules as Record<string, unknown> | null | undefined)),
-    [activeConfig]
-  );
+  // no hidden list), every field renders. Additionally, dependency rules with
+  // action="hide" can hide fields when their condition fires.
+  const hiddenFields = useMemo(() => {
+    const set = new Set(getHiddenFields(activeConfig?.fieldRules as Record<string, unknown> | null | undefined));
+    (depRules as DependencyRule[]).forEach(rule => {
+      if (rule.action !== "hide") return;
+      const ifFormKey = Object.entries(FORM_KEY_TO_FIELD).find(([, v]) => v === rule.ifField)?.[0] as keyof FormState | undefined;
+      if (!ifFormKey) return;
+      const currentVal = form[ifFormKey];
+      if (typeof currentVal !== "string" || currentVal !== rule.ifValue) return;
+      const thenFormKey = Object.entries(FORM_KEY_TO_FIELD).find(([, v]) => v === rule.thenField)?.[0];
+      if (thenFormKey) set.add(thenFormKey);
+    });
+    return set;
+  }, [activeConfig, depRules, form]);
   const isHidden = (formKey: keyof FormState) => hiddenFields.has(formKey as string);
   const show = (formKey: keyof FormState, node: React.ReactNode) =>
     isHidden(formKey) ? null : node;
@@ -271,8 +281,10 @@ export default function RequestForm() {
     let step1 = filterOptions(globalList, modelAllowed);
 
     // Step 2: Apply any dependency rules that fire given the current form values
-    // A rule fires when form[rule.ifField] === rule.ifValue AND rule.thenField === this field
+    // A rule fires when form[rule.ifField] === rule.ifValue AND rule.thenField === this field.
+    // Only "filter" rules narrow the option list; "hide" rules are handled by hiddenFields.
     const firingRules = (depRules as DependencyRule[]).filter(rule => {
+      if (rule.action === "hide") return false;
       if (rule.thenField !== fieldKey) return false;
       // Find which FormState key maps to the ifField
       const ifFormKey = Object.entries(FORM_KEY_TO_FIELD).find(([, v]) => v === rule.ifField)?.[0] as keyof FormState | undefined;
