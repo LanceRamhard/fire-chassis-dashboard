@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Save, Trash2, Pencil, Info, Settings, Link2, List,
   GripVertical, ArrowUp, ArrowDown, ChevronDown, ChevronRight,
-  AlertTriangle, X, Check,
+  AlertTriangle, X, Check, EyeOff, Filter,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -675,9 +675,11 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
   const [ifValue, setIfValue]   = useState("");
   const [thenField, setThenField] = useState("");
   const [thenAllowed, setThenAllowed] = useState<string[]>([]);
+  const [action, setAction] = useState<"filter" | "hide">("filter");
 
   const resetForm = () => {
     setIfField(""); setIfValue(""); setThenField(""); setThenAllowed([]);
+    setAction("filter");
     setEditingRule(null); setShowForm(false);
   };
 
@@ -687,6 +689,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
     setIfValue(rule.ifValue);
     setThenField(rule.thenField);
     setThenAllowed((rule.thenAllowedValues ?? []) as string[]);
+    setAction((rule.action as "filter" | "hide") ?? "filter");
     setShowForm(true);
   };
 
@@ -701,7 +704,9 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   const createMutation = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/dependency-rules", {
-      ifField, ifValue, thenField, thenAllowedValues: thenAllowed,
+      ifField, ifValue, thenField,
+      thenAllowedValues: action === "hide" ? [] : thenAllowed,
+      action,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/dependency-rules"] });
@@ -713,7 +718,9 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   const updateMutation = useMutation({
     mutationFn: async () => apiRequest("PATCH", `/api/dependency-rules/${editingRule!.id}`, {
-      ifField, ifValue, thenField, thenAllowedValues: thenAllowed,
+      ifField, ifValue, thenField,
+      thenAllowedValues: action === "hide" ? [] : thenAllowed,
+      action,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/dependency-rules"] });
@@ -732,8 +739,12 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
   });
 
   const handleSave = () => {
-    if (!ifField || !ifValue || !thenField || thenAllowed.length === 0) {
-      toast({ title: "Fill all fields and select at least one allowed value", variant: "destructive" });
+    if (!ifField || !ifValue || !thenField) {
+      toast({ title: "Fill all fields", variant: "destructive" });
+      return;
+    }
+    if (action === "filter" && thenAllowed.length === 0) {
+      toast({ title: "Select at least one allowed value", variant: "destructive" });
       return;
     }
     if (editingRule) updateMutation.mutate();
@@ -765,8 +776,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
         style={{ background: "rgba(249,115,22,0.07)", border: "1px solid rgba(249,115,22,0.2)", fontSize: "11px", color: "var(--vipr-text-muted)" }}>
         <Link2 size={13} style={{ color: "var(--vipr-orange)", flexShrink: 0, marginTop: "1px" }} />
         <span>
-          Dependency rules cascade-filter the request form in real time. Example: <em>"IF Brakes = Air Disc THEN Rear Axles only shows 21k, 23k, 24k."</em>{" "}
-          Multiple rules can target the same field — the most restrictive intersection is applied.
+          Dependency rules cascade-filter the request form in real time. Two types: <strong>Filter Options</strong> narrows a target field's choices (<em>"IF Brakes = Air Disc THEN Rear Axles only shows 21k, 23k, 24k"</em>), <strong>Hide Field</strong> removes a field entirely (<em>"IF Cab Config = Regular THEN hide Rear Seats"</em>). Multiple rules can stack on the same field.
         </span>
       </div>
 
@@ -795,19 +805,32 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
                 {groupRules.map(rule => {
                   const thenLabel = FIELD_META[rule.thenField]?.label ?? rule.thenField;
                   const allowed = (rule.thenAllowedValues as string[]) ?? [];
+                  const isHide = rule.action === "hide";
                   return (
                     <div key={rule.id} style={{ padding: "8px 12px", display: "flex", alignItems: "flex-start", gap: "8px", borderBottom: "1px solid rgba(42,50,68,0.5)" }}>
                       <span style={{ fontSize: "9px", fontWeight: 700, color: "var(--vipr-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: "2px", minWidth: "28px" }}>THEN</span>
                       <div style={{ flex: 1 }}>
-                        <span style={{ fontSize: "11px", color: "var(--vipr-text)", fontWeight: 600 }}>{thenLabel}</span>
-                        <span style={{ fontSize: "10px", color: "var(--vipr-text-muted)", marginLeft: "6px" }}>only shows:</span>
-                        <div style={{ marginTop: "4px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                          {allowed.map(v => (
-                            <span key={v} style={{ fontSize: "9px", background: "var(--vipr-surface-2)", border: "1px solid var(--vipr-border)", borderRadius: "3px", padding: "1px 5px", color: "var(--vipr-text-muted)", fontFamily: "monospace" }}>
-                              {labelFor(rule.thenField, v)}
+                        {isHide ? (
+                          <>
+                            <span style={{ fontSize: "9px", fontWeight: 700, color: "var(--vipr-red)", background: "rgba(248,81,73,0.12)", border: "1px solid rgba(248,81,73,0.3)", borderRadius: "3px", padding: "1px 5px", marginRight: "6px", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                              <EyeOff size={9} /> HIDE
                             </span>
-                          ))}
-                        </div>
+                            <span style={{ fontSize: "11px", color: "var(--vipr-text)", fontWeight: 600 }}>{thenLabel}</span>
+                            <span style={{ fontSize: "10px", color: "var(--vipr-text-muted)", marginLeft: "6px" }}>from the request form</span>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: "11px", color: "var(--vipr-text)", fontWeight: 600 }}>{thenLabel}</span>
+                            <span style={{ fontSize: "10px", color: "var(--vipr-text-muted)", marginLeft: "6px" }}>only shows:</span>
+                            <div style={{ marginTop: "4px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                              {allowed.map(v => (
+                                <span key={v} style={{ fontSize: "9px", background: "var(--vipr-surface-2)", border: "1px solid var(--vipr-border)", borderRadius: "3px", padding: "1px 5px", color: "var(--vipr-text-muted)", fontFamily: "monospace" }}>
+                                  {labelFor(rule.thenField, v)}
+                                </span>
+                              ))}
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div className="flex gap-1.5" style={{ flexShrink: 0 }}>
                         <button className="vipr-btn-ghost" style={{ padding: "3px 7px", fontSize: "10px" }}
@@ -854,6 +877,42 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
             {editingRule ? "Edit Rule" : "New Dependency Rule"}
           </div>
 
+          {/* Rule-type toggle */}
+          <div style={{ marginBottom: "12px" }}>
+            <div className="vipr-field-label" style={{ fontSize: "9px" }}>Rule type</div>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button type="button" onClick={() => setAction("filter")}
+                data-testid="button-action-filter"
+                style={{
+                  flex: 1, padding: "6px 10px", fontSize: "11px", fontWeight: 600,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "5px",
+                  border: `1px solid ${action === "filter" ? "rgba(249,115,22,0.45)" : "var(--vipr-border)"}`,
+                  background: action === "filter" ? "var(--vipr-orange-glow)" : "var(--vipr-surface-2)",
+                  color: action === "filter" ? "var(--vipr-orange)" : "var(--vipr-text-muted)",
+                  borderRadius: "4px", cursor: "pointer",
+                }}>
+                <Filter size={11} /> Filter Options
+              </button>
+              <button type="button" onClick={() => setAction("hide")}
+                data-testid="button-action-hide"
+                style={{
+                  flex: 1, padding: "6px 10px", fontSize: "11px", fontWeight: 600,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "5px",
+                  border: `1px solid ${action === "hide" ? "rgba(248,81,73,0.45)" : "var(--vipr-border)"}`,
+                  background: action === "hide" ? "rgba(248,81,73,0.12)" : "var(--vipr-surface-2)",
+                  color: action === "hide" ? "var(--vipr-red)" : "var(--vipr-text-muted)",
+                  borderRadius: "4px", cursor: "pointer",
+                }}>
+                <EyeOff size={11} /> Hide Field
+              </button>
+            </div>
+            <div style={{ fontSize: "10px", color: "var(--vipr-text-faint)", marginTop: "4px" }}>
+              {action === "filter"
+                ? "Restrict the target field's options when the IF condition fires."
+                : "Hide the target field entirely from the request form when the IF condition fires."}
+            </div>
+          </div>
+
           {/* IF row */}
           <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr", gap: "8px", alignItems: "end", marginBottom: "10px" }}>
             <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--vipr-orange)", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: "8px" }}>IF</div>
@@ -886,7 +945,9 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
           <div style={{ display: "grid", gridTemplateColumns: "28px 1fr", gap: "8px", alignItems: "start" }}>
             <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--vipr-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", paddingTop: "22px" }}>THEN</div>
             <div>
-              <div className="vipr-field-label" style={{ fontSize: "9px" }}>Field to restrict</div>
+              <div className="vipr-field-label" style={{ fontSize: "9px" }}>
+                {action === "hide" ? "Field to hide" : "Field to restrict"}
+              </div>
               <select className="vipr-input" style={{ padding: "5px 8px", fontSize: "11px", marginBottom: "8px" }}
                 value={thenField} onChange={e => { setThenField(e.target.value); setThenAllowed([]); }}
                 data-testid="select-then-field">
@@ -896,7 +957,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
                 ))}
               </select>
 
-              {thenField && thenFieldOptions.length > 0 && (
+              {action === "filter" && thenField && thenFieldOptions.length > 0 && (
                 <div>
                   <div className="vipr-field-label" style={{ fontSize: "9px", marginBottom: "6px" }}>
                     Allowed values when rule fires
@@ -934,7 +995,11 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
           <div className="flex gap-2 justify-end mt-4">
             <button className="vipr-btn-ghost" onClick={resetForm}>Cancel</button>
             <button className="vipr-btn-primary" onClick={handleSave}
-              disabled={!ifField || !ifValue || !thenField || thenAllowed.length === 0 || createMutation.isPending || updateMutation.isPending}
+              disabled={
+                !ifField || !ifValue || !thenField ||
+                (action === "filter" && thenAllowed.length === 0) ||
+                createMutation.isPending || updateMutation.isPending
+              }
               data-testid="button-save-rule">
               <Check size={12} /> {editingRule ? "Update Rule" : "Add Rule"}
             </button>
