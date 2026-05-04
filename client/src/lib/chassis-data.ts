@@ -273,3 +273,73 @@ export function filterOptions<T extends { id: string }>(
   if (!allowed || allowed.length === 0) return all;
   return all.filter(o => allowed.includes(o.id));
 }
+
+// ─── Per-model field visibility ──────────────────────────────────────────────
+// Sentinel key stored inside chassisConfigs.fieldRules. Its value is an array
+// of FormState formKey strings to HIDE for the selected model. Manufacturer
+// and truckModel are intentionally excluded — they are required for the rest
+// of the form to function.
+export const HIDDEN_FIELDS_KEY = "__hiddenFields__";
+
+// Toggle-able request-form fields, grouped by section. The order here drives
+// the order they appear in the ConfigAdmin "Visible Fields" panel.
+export const FIELD_DISPLAY_META: { key: string; label: string; section: string }[] = [
+  // Basic Information
+  { key: "configName",     label: "Config Name",      section: "Basic Information" },
+  { key: "requestDate",    label: "Request Date",     section: "Basic Information" },
+  { key: "dateRequired",   label: "Date Required",    section: "Basic Information" },
+  { key: "salesPerson",    label: "Sales Person",     section: "Basic Information" },
+  { key: "customerName",   label: "Customer Name",    section: "Basic Information" },
+  { key: "city",           label: "City",             section: "Basic Information" },
+  { key: "state",          label: "State",            section: "Basic Information" },
+  // Chassis
+  { key: "apparatusType",  label: "Apparatus Type",   section: "Chassis Selection" },
+  // Engine & Drivetrain
+  { key: "engine",         label: "Engine",           section: "Engine & Drivetrain" },
+  { key: "engineHp",       label: "Engine HP",        section: "Engine & Drivetrain" },
+  { key: "engineBrake",    label: "Engine Brake",     section: "Engine & Drivetrain" },
+  { key: "transmission",   label: "Transmission",     section: "Engine & Drivetrain" },
+  { key: "topSpeed",       label: "Top Speed",        section: "Engine & Drivetrain" },
+  // Axles & Brakes
+  { key: "cabConfig",      label: "Cab Config",       section: "Axles & Brakes" },
+  { key: "caMeasurement",  label: "CA Measurement",   section: "Axles & Brakes" },
+  { key: "frontAxle",      label: "Front Axle",       section: "Axles & Brakes" },
+  { key: "awd",            label: "AWD",              section: "Axles & Brakes" },
+  { key: "rearAxle",       label: "Rear Axle",        section: "Axles & Brakes" },
+  { key: "diffLock",       label: "Diff Lock",        section: "Axles & Brakes" },
+  { key: "brakes",         label: "Brakes",           section: "Axles & Brakes" },
+  // Water & Pump
+  { key: "waterTankSize",  label: "Water Tank Size",  section: "Water & Pump" },
+  { key: "pumpType",       label: "Pump Type",        section: "Water & Pump" },
+  { key: "ptoConfig",      label: "PTO Config",       section: "Water & Pump" },
+  { key: "heatExchanger",  label: "Heat Exchanger",   section: "Water & Pump" },
+  // Interior
+  { key: "driverSeat",     label: "Driver Seat",      section: "Interior" },
+  { key: "officerSeat",    label: "Officer Seat",     section: "Interior" },
+  { key: "rearSeats",      label: "Rear Seats",       section: "Interior" },
+  { key: "seatMaterial",   label: "Seat Material",    section: "Interior" },
+  { key: "sunVisor",       label: "Sun Visor",        section: "Interior" },
+  { key: "ramMount",       label: "Ram Mount",        section: "Interior" },
+  { key: "rearViewCamera", label: "Rear View Camera", section: "Interior" },
+  // Exterior
+  { key: "paintColor",     label: "Paint Color",      section: "Exterior" },
+  { key: "paintCode",      label: "Paint Code",       section: "Exterior" },
+  { key: "paintScheme",    label: "Paint Scheme",     section: "Exterior" },
+  { key: "airHornControls",label: "Air Horn Controls",section: "Exterior" },
+  { key: "tankScr",        label: "Tank / SCR",       section: "Exterior" },
+  { key: "airHorns",       label: "Air Horns",        section: "Exterior" },
+  { key: "bumper",         label: "Bumper",           section: "Exterior" },
+  { key: "wheels",         label: "Wheels",           section: "Exterior" },
+  { key: "ledHeadlights",  label: "LED Headlights",   section: "Exterior" },
+  // Comments
+  { key: "comments",       label: "Comments",         section: "Comments" },
+];
+
+// Read the hidden formKey list from a config's fieldRules JSON.
+export function getHiddenFields(
+  fieldRules: Record<string, unknown> | null | undefined
+): string[] {
+  if (!fieldRules) return [];
+  const v = (fieldRules as Record<string, unknown>)[HIDDEN_FIELDS_KEY];
+  return Array.isArray(v) ? (v as string[]) : [];
+}
