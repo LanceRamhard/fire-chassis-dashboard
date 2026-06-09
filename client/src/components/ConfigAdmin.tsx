@@ -14,7 +14,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { ChassisConfig, DropdownOptions, DependencyRule } from "@shared/schema";
+import type { ChassisConfig, DropdownOptions, DependencyRule, RuleCondition } from "@shared/schema";
+import { ruleConditions } from "@shared/schema";
 import {
   MANUFACTURERS, ALL_ENGINES, ALL_HP, ALL_TRANSMISSIONS,
   ALL_FRONT_AXLES, ALL_REAR_AXLES, ALL_CABS, ALL_BRAKES, APPARATUS_TYPES,
@@ -644,30 +645,38 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState<DependencyRule | null>(null);
 
-  // Form state
-  const [ifField, setIfField]   = useState("");
-  const [operator, setOperator] = useState<"eq" | "neq">("eq");
-  const [ifValue, setIfValue]   = useState("");
+  // Form state — a rule fires when ALL conditions hold; each condition matches
+  // its field against one or more values ("is any of" / "is not any of").
+  const emptyCondition = (): RuleCondition => ({ field: "", operator: "in", values: [] });
+  const [conditions, setConditions] = useState<RuleCondition[]>([emptyCondition()]);
   const [thenField, setThenField] = useState("");
   const [thenAllowed, setThenAllowed] = useState<string[]>([]);
   const [action, setAction] = useState<"filter" | "hide">("filter");
 
   const resetForm = () => {
-    setIfField(""); setOperator("eq"); setIfValue(""); setThenField(""); setThenAllowed([]);
+    setConditions([emptyCondition()]); setThenField(""); setThenAllowed([]);
     setAction("filter");
     setEditingRule(null); setShowForm(false);
   };
 
   const startEdit = (rule: DependencyRule) => {
     setEditingRule(rule);
-    setIfField(rule.ifField);
-    setOperator((rule.operator as "eq" | "neq") ?? "eq");
-    setIfValue(rule.ifValue);
+    const conds = ruleConditions(rule).map(c => ({ ...c, values: [...c.values] }));
+    setConditions(conds.length > 0 ? conds : [emptyCondition()]);
     setThenField(rule.thenField);
-    setThenAllowed((rule.thenAllowedValues ?? []) as string[]);
+    setThenAllowed((rule.thenAllowedValues ?? []) as unknown as string[]);
     setAction((rule.action as "filter" | "hide") ?? "filter");
     setShowForm(true);
   };
+
+  const updateCondition = (idx: number, patch: Partial<RuleCondition>) =>
+    setConditions(cs => cs.map((c, i) => i === idx ? { ...c, ...patch } : c));
+  const toggleConditionValue = (idx: number, id: string) =>
+    setConditions(cs => cs.map((c, i) => i === idx
+      ? { ...c, values: c.values.includes(id) ? c.values.filter(v => v !== id) : [...c.values, id] }
+      : c));
+  const addCondition = () => setConditions(cs => [...cs, emptyCondition()]);
+  const removeCondition = (idx: number) => setConditions(cs => cs.filter((_, i) => i !== idx));
 
   const getOptions = (fieldKey: string): OptionItem[] => {
     const row = allDropdowns.find(d => d.fieldKey === fieldKey);
@@ -680,7 +689,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   const createMutation = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/dependency-rules", {
-      ifField, operator, ifValue, thenField,
+      conditions, thenField,
       thenAllowedValues: action === "hide" ? [] : thenAllowed,
       action,
     }),
@@ -694,7 +703,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   const updateMutation = useMutation({
     mutationFn: async () => apiRequest("PATCH", `/api/dependency-rules/${editingRule!.id}`, {
-      ifField, operator, ifValue, thenField,
+      conditions, thenField,
       thenAllowedValues: action === "hide" ? [] : thenAllowed,
       action,
     }),
@@ -714,9 +723,12 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
     },
   });
 
+  const conditionsValid = conditions.length > 0 &&
+    conditions.every(c => c.field && c.values.length > 0);
+
   const handleSave = () => {
-    if (!ifField || !ifValue || !thenField) {
-      toast({ title: "Fill all fields", variant: "destructive" });
+    if (!conditionsValid || !thenField) {
+      toast({ title: "Each condition needs a field and at least one value", variant: "destructive" });
       return;
     }
     if (action === "filter" && thenAllowed.length === 0) {
@@ -733,14 +745,20 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   // Available source fields (ones that have options)
   const availableFields = Object.entries(FIELD_META)
-    .filter(([key]) => allDropdowns.some(d => d.fieldKey === key && ((d.options as OptionItem[])?.length ?? 0) > 0));
+    .filter(([key]) => allDropdowns.some(d => d.fieldKey === key && ((d.options as unknown as OptionItem[])?.length ?? 0) > 0));
 
-  const ifFieldOptions   = getOptions(ifField);
   const thenFieldOptions = getOptions(thenField);
 
-  // Group rules for display
+  // One-line summary of a condition, e.g. "Cab Config is not Crew Cab, Extended Cab"
+  const conditionSummary = (c: RuleCondition) => {
+    const fieldLabel = FIELD_META[c.field]?.label ?? c.field;
+    const vals = c.values.map(v => labelFor(c.field, v)).join(", ");
+    return `${fieldLabel} ${c.operator === "not_in" ? "is not" : "is"} ${vals}`;
+  };
+
+  // Group rules that share the same conditions for display
   const rulesByIf = rules.reduce<Record<string, DependencyRule[]>>((acc, rule) => {
-    const k = `${rule.ifField}::${rule.operator ?? "eq"}::${rule.ifValue}`;
+    const k = JSON.stringify(ruleConditions(rule));
     (acc[k] ??= []).push(rule);
     return acc;
   }, {});
@@ -752,7 +770,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
         style={{ background: "rgba(249,115,22,0.07)", border: "1px solid rgba(249,115,22,0.2)", fontSize: "11px", color: "var(--vipr-text-muted)" }}>
         <Link2 size={13} style={{ color: "var(--vipr-orange)", flexShrink: 0, marginTop: "1px" }} />
         <span>
-          Dependency rules cascade-filter the request form in real time. Two types: <strong>Filter Options</strong> narrows a target field's choices (<em>"IF Brakes is Air Disc THEN Rear Axles only shows 21k, 23k, 24k"</em>), <strong>Hide Field</strong> removes a field entirely. The <strong>is not</strong> condition also fires while the source field is unselected — so <em>"IF Cab Config is not Crew THEN hide Rear Seats"</em> keeps Rear Seats hidden until Crew Cab is actually chosen. Multiple rules can stack on the same field.
+          Dependency rules cascade-filter the request form in real time. The IF side accepts <strong>multiple values</strong> (<em>"IF Transmission is any of 3000 EVS, 3500 EVS THEN PTO Config only shows the 3000-series"</em>) and <strong>multiple AND-ed conditions</strong>. Two rule types: <strong>Filter Options</strong> narrows a target field's choices, <strong>Hide Field</strong> removes a field entirely. An <strong>is not</strong> condition also fires while its field is unselected — so <em>"IF Cab Config is not Crew THEN hide Rear Seats"</em> keeps Rear Seats hidden until Crew Cab is actually chosen. Multiple rules can stack on the same field.
         </span>
       </div>
 
@@ -764,26 +782,35 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
       ) : (
         <div className="space-y-2">
           {Object.entries(rulesByIf).map(([key, groupRules]) => {
-            const [iF, op, iV] = key.split("::");
-            const ifLabel = FIELD_META[iF]?.label ?? iF;
-            const ivLabel = labelFor(iF, iV);
-            const isNeq = op === "neq";
+            const conds = JSON.parse(key) as RuleCondition[];
             return (
               <div key={key} style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", borderRadius: "6px", overflow: "hidden" }}>
-                {/* IF header */}
-                <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--vipr-border)", background: "rgba(249,115,22,0.04)", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ fontSize: "9px", fontWeight: 700, color: "var(--vipr-orange)", textTransform: "uppercase", letterSpacing: "0.05em" }}>IF</span>
-                  <span style={{ fontSize: "11px", color: "var(--vipr-text)" }}>{ifLabel}</span>
-                  <span style={{ fontSize: "10px", fontWeight: isNeq ? 700 : 400, color: isNeq ? "var(--vipr-red)" : "var(--vipr-text-muted)" }}>
-                    {isNeq ? "is not" : "is"}
-                  </span>
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--vipr-text)" }}>{ivLabel}</span>
-                  <span style={{ fontSize: "9px", fontFamily: "monospace", color: "var(--vipr-text-faint)", marginLeft: "2px" }}>({iV})</span>
+                {/* IF header — one row per condition, AND-ed together */}
+                <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--vipr-border)", background: "rgba(249,115,22,0.04)", display: "flex", flexDirection: "column", gap: "4px" }}>
+                  {conds.map((c, i) => {
+                    const isNeq = c.operator === "not_in";
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "9px", fontWeight: 700, color: "var(--vipr-orange)", textTransform: "uppercase", letterSpacing: "0.05em", minWidth: "24px" }}>
+                          {i === 0 ? "IF" : "AND"}
+                        </span>
+                        <span style={{ fontSize: "11px", color: "var(--vipr-text)" }}>{FIELD_META[c.field]?.label ?? c.field}</span>
+                        <span style={{ fontSize: "10px", fontWeight: isNeq ? 700 : 400, color: isNeq ? "var(--vipr-red)" : "var(--vipr-text-muted)" }}>
+                          {isNeq ? "is not" : "is"}
+                        </span>
+                        {c.values.map(v => (
+                          <span key={v} style={{ fontSize: "10px", fontWeight: 600, color: "var(--vipr-text)", background: "var(--vipr-surface-2)", border: "1px solid var(--vipr-border)", borderRadius: "3px", padding: "1px 6px" }}>
+                            {labelFor(c.field, v)}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
                 {/* THEN rules */}
                 {groupRules.map(rule => {
                   const thenLabel = FIELD_META[rule.thenField]?.label ?? rule.thenField;
-                  const allowed = (rule.thenAllowedValues as string[]) ?? [];
+                  const allowed = (rule.thenAllowedValues as unknown as string[]) ?? [];
                   const isHide = rule.action === "hide";
                   return (
                     <div key={rule.id} style={{ padding: "8px 12px", display: "flex", alignItems: "flex-start", gap: "8px", borderBottom: "1px solid rgba(42,50,68,0.5)" }}>
@@ -828,7 +855,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
                             <AlertDialogHeader>
                               <AlertDialogTitle style={{ color: "var(--vipr-text)" }}>Delete this rule?</AlertDialogTitle>
                               <AlertDialogDescription style={{ color: "var(--vipr-text-muted)" }}>
-                                The cascade filter for {thenLabel} when {ifLabel} = {ivLabel} will be removed.
+                                The cascade filter for {thenLabel} when {conds.map(conditionSummary).join(" AND ")} will be removed.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -892,47 +919,90 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
             </div>
           </div>
 
-          {/* IF row */}
-          <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 90px 1fr", gap: "8px", alignItems: "end", marginBottom: "10px" }}>
-            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--vipr-orange)", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: "8px" }}>IF</div>
-            <div>
-              <div className="vipr-field-label" style={{ fontSize: "9px" }}>Field</div>
-              <select className="vipr-input" style={{ padding: "5px 8px", fontSize: "11px" }}
-                value={ifField} onChange={e => { setIfField(e.target.value); setIfValue(""); }}
-                data-testid="select-if-field">
-                <option value="">— Select field —</option>
-                {availableFields.map(([key, meta]) => (
-                  <option key={key} value={key}>{meta.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div className="vipr-field-label" style={{ fontSize: "9px" }}>Condition</div>
-              <select className="vipr-input" style={{ padding: "5px 8px", fontSize: "11px" }}
-                value={operator} onChange={e => setOperator(e.target.value as "eq" | "neq")}
-                data-testid="select-if-operator">
-                <option value="eq">is</option>
-                <option value="neq">is not</option>
-              </select>
-            </div>
-            <div>
-              <div className="vipr-field-label" style={{ fontSize: "9px" }}>Value</div>
-              <select className="vipr-input" style={{ padding: "5px 8px", fontSize: "11px" }}
-                value={ifValue} onChange={e => setIfValue(e.target.value)}
-                disabled={!ifField}
-                data-testid="select-if-value">
-                <option value="">— Select value —</option>
-                {ifFieldOptions.map(opt => (
-                  <option key={opt.id} value={opt.id}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
+          {/* IF conditions — all must hold for the rule to fire */}
+          {conditions.map((cond, idx) => {
+            const condFieldOptions = getOptions(cond.field);
+            return (
+              <div key={idx} style={{ display: "grid", gridTemplateColumns: "28px 1fr", gap: "8px", alignItems: "start", marginBottom: "10px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--vipr-orange)", textTransform: "uppercase", letterSpacing: "0.05em", paddingTop: "22px" }}>
+                  {idx === 0 ? "IF" : "AND"}
+                </div>
+                <div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 110px auto", gap: "8px", alignItems: "end", marginBottom: "6px" }}>
+                    <div>
+                      <div className="vipr-field-label" style={{ fontSize: "9px" }}>Field</div>
+                      <select className="vipr-input" style={{ padding: "5px 8px", fontSize: "11px" }}
+                        value={cond.field}
+                        onChange={e => updateCondition(idx, { field: e.target.value, values: [] })}
+                        data-testid={`select-if-field-${idx}`}>
+                        <option value="">— Select field —</option>
+                        {availableFields
+                          .filter(([key]) => key === cond.field || (key !== thenField && !conditions.some((c, i) => i !== idx && c.field === key)))
+                          .map(([key, meta]) => (
+                            <option key={key} value={key}>{meta.label}</option>
+                          ))}
+                      </select>
+                    </div>
+                    <div>
+                      <div className="vipr-field-label" style={{ fontSize: "9px" }}>Condition</div>
+                      <select className="vipr-input" style={{ padding: "5px 8px", fontSize: "11px" }}
+                        value={cond.operator}
+                        onChange={e => updateCondition(idx, { operator: e.target.value as "in" | "not_in" })}
+                        data-testid={`select-if-operator-${idx}`}>
+                        <option value="in">is any of</option>
+                        <option value="not_in">is not</option>
+                      </select>
+                    </div>
+                    {conditions.length > 1 && (
+                      <button type="button" className="vipr-btn-ghost"
+                        style={{ padding: "5px 8px", color: "var(--vipr-red)", borderColor: "rgba(248,81,73,0.3)" }}
+                        onClick={() => removeCondition(idx)}
+                        data-testid={`button-remove-condition-${idx}`}>
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+
+                  {cond.field && condFieldOptions.length > 0 && (
+                    <div>
+                      <div className="vipr-field-label" style={{ fontSize: "9px", marginBottom: "4px" }}>
+                        {cond.operator === "not_in" ? "Values the field must NOT be" : "Values that fire this rule"}
+                        <span style={{ color: "var(--vipr-text-faint)", fontWeight: 400, marginLeft: "4px" }}>
+                          ({cond.values.length} of {condFieldOptions.length} selected)
+                        </span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "4px" }}>
+                        {condFieldOptions.map(opt => (
+                          <label key={opt.id}
+                            style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", padding: "3px 6px", borderRadius: "3px", background: cond.values.includes(opt.id) ? "var(--vipr-orange-glow)" : "transparent", border: `1px solid ${cond.values.includes(opt.id) ? "rgba(249,115,22,0.25)" : "transparent"}` }}>
+                            <input type="checkbox" className="vipr-checkbox"
+                              checked={cond.values.includes(opt.id)}
+                              onChange={() => toggleConditionValue(idx, opt.id)}
+                              data-testid={`checkbox-if-${idx}-${opt.id}`} />
+                            <span style={{ fontSize: "11px", color: "var(--vipr-text-muted)" }}>
+                              {opt.label}
+                              {opt.code && <span className="code-badge ml-1">{opt.code}</span>}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {cond.operator === "not_in" && (
+                        <div style={{ fontSize: "10px", color: "var(--vipr-text-faint)", marginTop: "4px" }}>
+                          "is not" also fires while the field is unselected — use it for "show only when …" behavior.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ margin: "-2px 0 12px 36px" }}>
+            <button type="button" className="vipr-btn-ghost" style={{ padding: "4px 10px", fontSize: "10px" }}
+              onClick={addCondition} data-testid="button-add-condition">
+              <Plus size={10} /> AND condition
+            </button>
           </div>
-          {operator === "neq" && (
-            <div style={{ fontSize: "10px", color: "var(--vipr-text-faint)", margin: "-4px 0 10px 36px" }}>
-              "is not" also fires while the field is unselected — use it for "show only when …" behavior.
-            </div>
-          )}
 
           {/* THEN row */}
           <div style={{ display: "grid", gridTemplateColumns: "28px 1fr", gap: "8px", alignItems: "start" }}>
@@ -945,7 +1015,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
                 value={thenField} onChange={e => { setThenField(e.target.value); setThenAllowed([]); }}
                 data-testid="select-then-field">
                 <option value="">— Select field —</option>
-                {availableFields.filter(([key]) => key !== ifField).map(([key, meta]) => (
+                {availableFields.filter(([key]) => !conditions.some(c => c.field === key)).map(([key, meta]) => (
                   <option key={key} value={key}>{meta.label}</option>
                 ))}
               </select>
@@ -989,7 +1059,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
             <button className="vipr-btn-ghost" onClick={resetForm}>Cancel</button>
             <button className="vipr-btn-primary" onClick={handleSave}
               disabled={
-                !ifField || !ifValue || !thenField ||
+                !conditionsValid || !thenField ||
                 (action === "filter" && thenAllowed.length === 0) ||
                 createMutation.isPending || updateMutation.isPending
               }
@@ -1020,7 +1090,7 @@ export default function ConfigAdmin() {
   // Build a convenient map: fieldKey → OptionItem[]
   const liveOptions: Record<string, OptionItem[]> = {};
   allDropdowns.forEach(d => {
-    liveOptions[d.fieldKey] = (d.options ?? []) as OptionItem[];
+    liveOptions[d.fieldKey] = (d.options ?? []) as unknown as OptionItem[];
   });
 
   const tabs: { id: "models" | "dropdowns" | "dependencies"; label: string; icon: React.ReactNode }[] = [
