@@ -98,11 +98,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(await storage.getDependencyRules());
   });
 
+  const ruleConditionSchema = z.object({
+    field:    z.string().min(1),
+    operator: z.enum(["in", "not_in"]),
+    values:   z.array(z.string().min(1)).min(1),
+  });
+
   app.post("/api/dependency-rules", async (req, res) => {
     const schema = z.object({
-      ifField:           z.string().min(1),
-      operator:          z.enum(["eq", "neq"]).optional(),
-      ifValue:           z.string().min(1),
+      conditions:        z.array(ruleConditionSchema).min(1),
       thenField:         z.string().min(1),
       thenAllowedValues: z.array(z.string()),
       action:            z.enum(["filter", "hide"]).optional(),
@@ -114,9 +118,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.patch("/api/dependency-rules/:id", async (req, res) => {
     const schema = z.object({
-      ifField:           z.string().min(1).optional(),
-      operator:          z.enum(["eq", "neq"]).optional(),
-      ifValue:           z.string().min(1).optional(),
+      conditions:        z.array(ruleConditionSchema).min(1).optional(),
       thenField:         z.string().min(1).optional(),
       thenAllowedValues: z.array(z.string()).optional(),
       action:            z.enum(["filter", "hide"]).optional(),

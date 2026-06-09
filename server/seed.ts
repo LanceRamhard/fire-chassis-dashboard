@@ -38,9 +38,7 @@ export function createTables() {
 
     CREATE TABLE IF NOT EXISTS dependency_rules (
       id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-      if_field             TEXT    NOT NULL,
-      operator             TEXT    NOT NULL DEFAULT 'eq',
-      if_value             TEXT    NOT NULL,
+      conditions           TEXT    NOT NULL,
       then_field           TEXT    NOT NULL,
       then_allowed_values  TEXT    NOT NULL,
       action               TEXT    NOT NULL DEFAULT 'filter',
@@ -48,13 +46,44 @@ export function createTables() {
     );
   `);
 
-  // Idempotent migrations for pre-existing DBs.
+  // Idempotent migration for pre-existing DBs: the legacy table stored a single
+  // if_field/operator/if_value condition per rule. Rebuild it with the new
+  // conditions JSON column, converting each old rule to a one-condition rule
+  // (eq → in, neq → not_in).
   const cols = sqlite.prepare(`PRAGMA table_info(dependency_rules)`).all() as { name: string }[];
-  if (!cols.some(c => c.name === "action")) {
-    sqlite.exec(`ALTER TABLE dependency_rules ADD COLUMN action TEXT NOT NULL DEFAULT 'filter'`);
-  }
-  if (!cols.some(c => c.name === "operator")) {
-    sqlite.exec(`ALTER TABLE dependency_rules ADD COLUMN operator TEXT NOT NULL DEFAULT 'eq'`);
+  if (!cols.some(c => c.name === "conditions")) {
+    const legacy = sqlite.prepare(`SELECT * FROM dependency_rules`).all() as {
+      if_field: string; operator?: string; if_value: string;
+      then_field: string; then_allowed_values: string; action?: string; updated_at: number;
+    }[];
+    sqlite.exec(`
+      BEGIN;
+      DROP TABLE dependency_rules;
+      CREATE TABLE dependency_rules (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        conditions           TEXT    NOT NULL,
+        then_field           TEXT    NOT NULL,
+        then_allowed_values  TEXT    NOT NULL,
+        action               TEXT    NOT NULL DEFAULT 'filter',
+        updated_at           INTEGER NOT NULL
+      );
+      COMMIT;
+    `);
+    const insert = sqlite.prepare(`
+      INSERT INTO dependency_rules (conditions, then_field, then_allowed_values, action, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    for (const r of legacy) {
+      const conditions = [{
+        field:    r.if_field,
+        operator: r.operator === "neq" ? "not_in" : "in",
+        values:   [r.if_value],
+      }];
+      insert.run(JSON.stringify(conditions), r.then_field, r.then_allowed_values, r.action ?? "filter", r.updated_at);
+    }
+    if (legacy.length > 0) {
+      console.log(`[seed] Migrated ${legacy.length} dependency rules to multi-value conditions.`);
+    }
   }
 }
 
@@ -124,14 +153,16 @@ const REGULAR_CAB_OFFICER_SEATS = ["911_Non-Suspension_1F1","911_Air-Ride_1E7","
 
 const DEFAULT_DEPENDENCY_RULES = [
   // Rear seats are a crew-cab option only — hidden until Crew Cab is selected
-  { ifField: "cabs", operator: "neq", ifValue: "crew", thenField: "rearSeats", thenAllowedValues: [] as string[], action: "hide" },
+  { conditions: [{ field: "cabs", operator: "not_in", values: ["crew"] }],
+    thenField: "rearSeats", thenAllowedValues: [] as string[], action: "hide" },
   // Regular cab can't take the Ext/Crew officer seats
-  { ifField: "cabs", operator: "eq", ifValue: "regular", thenField: "officerSeats", thenAllowedValues: REGULAR_CAB_OFFICER_SEATS, action: "filter" },
+  { conditions: [{ field: "cabs", operator: "in", values: ["regular"] }],
+    thenField: "officerSeats", thenAllowedValues: REGULAR_CAB_OFFICER_SEATS, action: "filter" },
   // PTO configurations are transmission-series specific
-  { ifField: "transmissions", operator: "eq", ifValue: "3000_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_3000, action: "filter" },
-  { ifField: "transmissions", operator: "eq", ifValue: "3500_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_3000, action: "filter" },
-  { ifField: "transmissions", operator: "eq", ifValue: "4000_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_4000, action: "filter" },
-  { ifField: "transmissions", operator: "eq", ifValue: "4500_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_4000, action: "filter" },
+  { conditions: [{ field: "transmissions", operator: "in", values: ["3000_evs", "3500_evs"] }],
+    thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_3000, action: "filter" },
+  { conditions: [{ field: "transmissions", operator: "in", values: ["4000_evs", "4500_evs"] }],
+    thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_4000, action: "filter" },
 ];
 
 export function seedDefaults() {
@@ -160,11 +191,11 @@ export function seedDefaults() {
   const ruleCount = (sqlite.prepare(`SELECT COUNT(*) AS n FROM dependency_rules`).get() as { n: number }).n;
   if (ruleCount === 0) {
     const insertRule = sqlite.prepare(`
-      INSERT INTO dependency_rules (if_field, operator, if_value, then_field, then_allowed_values, action, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO dependency_rules (conditions, then_field, then_allowed_values, action, updated_at)
+      VALUES (?, ?, ?, ?, ?)
     `);
     for (const r of DEFAULT_DEPENDENCY_RULES) {
-      insertRule.run(r.ifField, r.operator, r.ifValue, r.thenField, JSON.stringify(r.thenAllowedValues), r.action, now);
+      insertRule.run(JSON.stringify(r.conditions), r.thenField, JSON.stringify(r.thenAllowedValues), r.action, now);
     }
     console.log(`[seed] Inserted ${DEFAULT_DEPENDENCY_RULES.length} default dependency rules.`);
   }

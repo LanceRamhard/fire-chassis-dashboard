@@ -7,7 +7,8 @@ import {
   Printer, Save, RefreshCw, Truck, Cog, Palette, FileText, Droplets, Armchair,
   GitBranch, AlertTriangle, CheckCircle2, ClipboardCheck,
 } from "lucide-react";
-import type { ChassisConfig, DropdownOptions, DependencyRule } from "@shared/schema";
+import type { ChassisConfig, DropdownOptions, DependencyRule, RuleCondition } from "@shared/schema";
+import { ruleConditions } from "@shared/schema";
 import {
   MANUFACTURERS, APPARATUS_TYPES,
   ALL_ENGINES, ALL_HP, ALL_ENGINE_BRAKES, ALL_TRANSMISSIONS,
@@ -290,7 +291,7 @@ export default function RequestForm() {
   const liveOptions = useMemo<Record<string, OptionItem[]>>(() => {
     const map: Record<string, OptionItem[]> = {};
     allDropdownRows.forEach(d => {
-      map[d.fieldKey] = (d.options ?? []) as OptionItem[];
+      map[d.fieldKey] = (d.options ?? []) as unknown as OptionItem[];
     });
     // Fallbacks for fields not yet in the server
     if (!map.engines)          map.engines          = ALL_ENGINES;
@@ -327,17 +328,24 @@ export default function RequestForm() {
   );
   const modelRules = (activeConfig?.fieldRules ?? {}) as Record<string, string[]>;
 
-  // Does a dependency rule fire given the current form values?
-  //   eq:  fires when the source field equals ifValue
-  //   neq: fires when the source field differs from ifValue — including when it
-  //        is still empty, which gives "show only when …" semantics
-  const ruleFires = useCallback((rule: DependencyRule): boolean => {
-    const ifFormKey = FIELD_TO_FORM_KEY[rule.ifField];
-    if (!ifFormKey) return false;
-    const cur = form[ifFormKey];
+  // Does a dependency rule fire given the current form values? A rule fires
+  // when ALL of its conditions hold:
+  //   in:     the source field's value is one of the condition's values
+  //   not_in: the source field's value is NOT one of them — including when it
+  //           is still empty, which gives "show only when …" semantics
+  const conditionHolds = useCallback((c: RuleCondition): boolean => {
+    const formKey = FIELD_TO_FORM_KEY[c.field];
+    if (!formKey) return false;
+    const cur = form[formKey];
     if (typeof cur !== "string") return false;
-    return rule.operator === "neq" ? cur !== rule.ifValue : cur === rule.ifValue;
+    const matched = c.values.includes(cur);
+    return c.operator === "not_in" ? !matched : matched;
   }, [form]);
+
+  const ruleFires = useCallback((rule: DependencyRule): boolean => {
+    const conditions = ruleConditions(rule);
+    return conditions.length > 0 && conditions.every(conditionHolds);
+  }, [conditionHolds]);
 
   // Fields hidden by the model's admin config (render nothing at all)
   const modelHiddenFields = useMemo(
@@ -363,14 +371,19 @@ export default function RequestForm() {
   );
 
   // Human-readable reason a rule hides a field, e.g.
-  //   eq:  "not available with Cab Config: Regular Cab"
-  //   neq: "available with Cab Config: Crew Cab only"
+  //   in:     "not available with Cab Config: Regular Cab"
+  //   not_in: "available with Cab Config: Crew Cab or Extended Cab only"
   const hiddenReason = useCallback((rule: DependencyRule): string => {
-    const srcLabel = FIELD_KEY_META[rule.ifField]?.label ?? rule.ifField;
-    const valLabel = (liveOptions[rule.ifField] ?? []).find(o => o.id === rule.ifValue)?.label ?? rule.ifValue;
-    return rule.operator === "neq"
-      ? `available with ${srcLabel}: ${valLabel} only`
-      : `not available with ${srcLabel}: ${valLabel}`;
+    const parts = ruleConditions(rule).map(c => {
+      const srcLabel = FIELD_KEY_META[c.field]?.label ?? c.field;
+      const valLabels = c.values
+        .map(v => (liveOptions[c.field] ?? []).find(o => o.id === v)?.label ?? v)
+        .join(" or ");
+      return c.operator === "not_in"
+        ? `available with ${srcLabel}: ${valLabels} only`
+        : `not available with ${srcLabel}: ${valLabels}`;
+    });
+    return parts.join("; ");
   }, [liveOptions]);
 
   // Renders a field, or an explanation row when a dependency rule hides it.
@@ -407,7 +420,7 @@ export default function RequestForm() {
       rule.action !== "hide" && rule.thenField === fieldKey && ruleFires(rule)
     );
     if (firingRules.length > 0) {
-      const allowedSets = firingRules.map(r => new Set((r.thenAllowedValues as string[]) ?? []));
+      const allowedSets = firingRules.map(r => new Set((r.thenAllowedValues as unknown as string[]) ?? []));
       result = result.filter(opt => allowedSets.every(set => set.has(opt.id)));
     }
 
@@ -424,11 +437,17 @@ export default function RequestForm() {
     if (firing.length === 0) return undefined;
     const parts = new Set<string>();
     firing.forEach(r => {
-      const srcFormKey = FIELD_TO_FORM_KEY[r.ifField];
-      const srcLabel = FIELD_KEY_META[r.ifField]?.label ?? r.ifField;
-      const curVal = srcFormKey ? (form[srcFormKey] as string) : "";
-      const valLabel = (liveOptions[r.ifField] ?? []).find(o => o.id === curVal)?.label ?? curVal;
-      parts.add(`${srcLabel}: ${valLabel}`);
+      ruleConditions(r).forEach(c => {
+        const srcFormKey = FIELD_TO_FORM_KEY[c.field];
+        const srcLabel = FIELD_KEY_META[c.field]?.label ?? c.field;
+        const curVal = srcFormKey ? (form[srcFormKey] as string) : "";
+        if (!curVal) {
+          parts.add(`no ${srcLabel} selected`);
+          return;
+        }
+        const valLabel = (liveOptions[c.field] ?? []).find(o => o.id === curVal)?.label ?? curVal;
+        parts.add(`${srcLabel}: ${valLabel}`);
+      });
     });
     return `Limited by ${Array.from(parts).join(", ")}`;
   }, [depRules, ruleFires, form, liveOptions]);

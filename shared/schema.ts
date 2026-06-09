@@ -56,16 +56,17 @@ export type InsertDropdownOptions = z.infer<typeof insertDropdownOptionsSchema>;
 export type DropdownOptions = typeof dropdownOptions.$inferSelect;
 
 // ─── Dependency Rules ────────────────────────────────────────────────────────
-// operator = "eq":  the rule fires when ifField === ifValue
-// operator = "neq": the rule fires when ifField !== ifValue (including when the
-//                   field has no selection yet — "show only when" semantics)
+// A rule fires when ALL of its conditions hold. Each condition matches a source
+// field against a SET of values:
+//   operator = "in":     holds when the field's current value is one of `values`
+//   operator = "not_in": holds when the field's current value is NOT one of
+//                        `values` — including when the field has no selection
+//                        yet, which gives "show only when …" semantics
 // action = "filter": when the rule fires, restrict thenField options to thenAllowedValues
 // action = "hide":   when the rule fires, hide thenField from the request form
 export const dependencyRules = sqliteTable("dependency_rules", {
   id:                integer("id").primaryKey({ autoIncrement: true }),
-  ifField:           text("if_field").notNull(),
-  operator:          text("operator").notNull().default("eq"),
-  ifValue:           text("if_value").notNull(),
+  conditions:        text("conditions").notNull(),          // JSON RuleCondition[] stored as text
   thenField:         text("then_field").notNull(),
   thenAllowedValues: text("then_allowed_values").notNull(), // JSON stored as text
   action:            text("action").notNull().default("filter"),
@@ -73,7 +74,18 @@ export const dependencyRules = sqliteTable("dependency_rules", {
 });
 
 export type DependencyRuleAction = "filter" | "hide";
-export type DependencyRuleOperator = "eq" | "neq";
+export type RuleConditionOperator = "in" | "not_in";
+
+export interface RuleCondition {
+  field: string;
+  operator: RuleConditionOperator;
+  values: string[];
+}
+
+// The conditions column holds JSON; the storage layer deserializes it.
+export function ruleConditions(rule: { conditions: unknown }): RuleCondition[] {
+  return Array.isArray(rule.conditions) ? (rule.conditions as RuleCondition[]) : [];
+}
 
 export const insertDependencyRuleSchema = createInsertSchema(dependencyRules).omit({
   id: true,

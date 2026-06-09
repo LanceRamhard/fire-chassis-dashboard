@@ -54,6 +54,7 @@ function deserializeDropdown(row: typeof dropdownOptions.$inferSelect): Dropdown
 function deserializeDependency(row: typeof dependencyRules.$inferSelect): DependencyRule {
   return {
     ...row,
+    conditions:        fromJson(row.conditions as unknown as string),
     thenAllowedValues: fromJson(row.thenAllowedValues as unknown as string),
   } as unknown as DependencyRule;
 }
@@ -211,7 +212,7 @@ export class DatabaseStorage implements IStorage {
   async getDependencyRules(): Promise<DependencyRule[]> {
     const rows = db.select().from(dependencyRules).all();
     return rows.map(deserializeDependency).sort((a, b) =>
-      a.ifField.localeCompare(b.ifField) || a.ifValue.localeCompare(b.ifValue)
+      JSON.stringify(a.conditions).localeCompare(JSON.stringify(b.conditions))
     );
   }
 
@@ -222,9 +223,7 @@ export class DatabaseStorage implements IStorage {
 
   async createDependencyRule(rule: InsertDependencyRule): Promise<DependencyRule> {
     const result = db.insert(dependencyRules).values({
-      ifField:           rule.ifField,
-      operator:          rule.operator ?? "eq",
-      ifValue:           rule.ifValue,
+      conditions:        toJson(rule.conditions),
       thenField:         rule.thenField,
       thenAllowedValues: toJson(rule.thenAllowedValues),
       action:            rule.action ?? "filter",
@@ -235,9 +234,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateDependencyRule(id: number, rule: Partial<InsertDependencyRule>): Promise<DependencyRule | undefined> {
     const updates: Record<string, unknown> = { updatedAt: new Date() };
-    if (rule.ifField           !== undefined) updates.ifField           = rule.ifField;
-    if (rule.operator          !== undefined) updates.operator          = rule.operator;
-    if (rule.ifValue           !== undefined) updates.ifValue           = rule.ifValue;
+    if (rule.conditions        !== undefined) updates.conditions        = toJson(rule.conditions);
     if (rule.thenField         !== undefined) updates.thenField         = rule.thenField;
     if (rule.thenAllowedValues !== undefined) updates.thenAllowedValues = toJson(rule.thenAllowedValues);
     if (rule.action            !== undefined) updates.action            = rule.action;
