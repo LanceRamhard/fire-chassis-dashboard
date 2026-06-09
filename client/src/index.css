@@ -267,6 +267,81 @@
     font-weight: 700;
   }
 
+  /* Segmented option group — pill buttons used instead of a dropdown for
+     small option sets so every choice is visible at a glance */
+  .vipr-seg-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .vipr-seg-btn {
+    background: var(--vipr-bg);
+    border: 1px solid var(--vipr-border);
+    color: var(--vipr-text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 9px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    line-height: 1.2;
+  }
+  .vipr-seg-btn:hover:not(:disabled) {
+    border-color: var(--vipr-orange);
+    color: var(--vipr-text);
+  }
+  .vipr-seg-btn.active {
+    background: var(--vipr-orange);
+    border-color: var(--vipr-orange);
+    color: #000;
+    font-weight: 700;
+  }
+  .vipr-seg-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* Inline field hint — explains active dependency filtering at the field */
+  .vipr-field-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--vipr-green);
+    margin-top: 3px;
+    line-height: 1.3;
+  }
+
+  /* Placeholder row for a field hidden by a dependency rule */
+  .vipr-hidden-note {
+    font-size: 10px;
+    color: var(--vipr-text-faint);
+    padding: 6px 0 2px;
+    line-height: 1.4;
+  }
+  .vipr-hidden-note .field-name {
+    text-decoration: line-through;
+    color: var(--vipr-text-muted);
+  }
+
+  /* Section progress chip in card headers */
+  .vipr-progress-chip {
+    margin-left: auto;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--vipr-surface);
+    border: 1px solid var(--vipr-border);
+    color: var(--vipr-text-muted);
+  }
+  .vipr-progress-chip.complete {
+    background: rgba(63,185,80,0.12);
+    border-color: rgba(63,185,80,0.3);
+    color: var(--vipr-green);
+  }
+
   /* Tab trigger VIPR style */
   .vipr-tab {
     font-size: 11px;
@@ -553,6 +628,26 @@
     background: white !important;
   }
   .vipr-mfr-btn.active {
+    background: #1e3a8a !important;
+    border-color: #1e3a8a !important;
+    color: white !important;
+  }
+
+  /* Segmented option pills print like the manufacturer pills */
+  .vipr-seg-group {
+    flex-wrap: wrap !important;
+    gap: 1.5pt !important;
+  }
+  .vipr-seg-btn {
+    font-size: 5.5pt !important;
+    padding: 1pt 3pt !important;
+    border-radius: 2pt !important;
+    border: 0.5pt solid #999 !important;
+    color: #555 !important;
+    background: white !important;
+    opacity: 1 !important;
+  }
+  .vipr-seg-btn.active {
     background: #1e3a8a !important;
     border-color: #1e3a8a !important;
     color: white !important;

@@ -39,6 +39,7 @@ export function createTables() {
     CREATE TABLE IF NOT EXISTS dependency_rules (
       id                   INTEGER PRIMARY KEY AUTOINCREMENT,
       if_field             TEXT    NOT NULL,
+      operator             TEXT    NOT NULL DEFAULT 'eq',
       if_value             TEXT    NOT NULL,
       then_field           TEXT    NOT NULL,
       then_allowed_values  TEXT    NOT NULL,
@@ -47,10 +48,13 @@ export function createTables() {
     );
   `);
 
-  // Idempotent migration: add `action` to dependency_rules for pre-existing DBs.
+  // Idempotent migrations for pre-existing DBs.
   const cols = sqlite.prepare(`PRAGMA table_info(dependency_rules)`).all() as { name: string }[];
   if (!cols.some(c => c.name === "action")) {
     sqlite.exec(`ALTER TABLE dependency_rules ADD COLUMN action TEXT NOT NULL DEFAULT 'filter'`);
+  }
+  if (!cols.some(c => c.name === "operator")) {
+    sqlite.exec(`ALTER TABLE dependency_rules ADD COLUMN operator TEXT NOT NULL DEFAULT 'eq'`);
   }
 }
 
@@ -110,6 +114,26 @@ const DEFAULT_DROPDOWNS = [
   { fieldKey: "salesPersons",    options: [{id:"joe",label:"Joe Juhl"},{id:"newt",label:"Newt Johnson"},{id:"scott",label:"Scott Boll"},{id:"craig",label:"Craig Nekali"},{id:"brett",label:"Brett Jenson"}] },
 ];
 
+// PTO configs split by Allison transmission series (the id encodes TRANS_3000 / TRANS_4000).
+// 3000/3500 EVS take the 3000-series PTOs; 4000/4500 EVS take the 4000-series.
+const PTO_TRANS_3000 = ["AP50-TRANS_3000","MBP750-TRANS_3000","RSD1000-TRANS_3000","RSD1250-TRANS_3000","HM500-TRANS_3000","LSP750-TRANS_3000","PSP1250-TRANS_3000","PSP1500-TRANS_3000","CLK500-TRANS_3000","CLPA500-TRANS_3000","CXPA750-TRANS_3000","CXPA1250-TRANS_3000"];
+const PTO_TRANS_4000 = ["AP50-TRANS_4000","MBP750-TRANS_4000","RSD1250-TRANS_4000","HM500-TRANS_4000","LSP750-TRANS_4000","PSP1250-TRANS_4000","PSP1500-TRANS_4000","CXPA1250-TRANS_4000","CXPA1500-TRANS_4000"];
+
+// Officer seats that fit a regular cab (excludes the Ext/Crew SCBA variants).
+const REGULAR_CAB_OFFICER_SEATS = ["911_Non-Suspension_1F1","911_Air-Ride_1E7","911_2-Man_Bench_351","HO_Bostrom_Air-Ride_1G6","HO_Bostrom_Non-Suspension_149","HO_Bostrom_SCBA_Air-Ride_1EA"];
+
+const DEFAULT_DEPENDENCY_RULES = [
+  // Rear seats are a crew-cab option only — hidden until Crew Cab is selected
+  { ifField: "cabs", operator: "neq", ifValue: "crew", thenField: "rearSeats", thenAllowedValues: [] as string[], action: "hide" },
+  // Regular cab can't take the Ext/Crew officer seats
+  { ifField: "cabs", operator: "eq", ifValue: "regular", thenField: "officerSeats", thenAllowedValues: REGULAR_CAB_OFFICER_SEATS, action: "filter" },
+  // PTO configurations are transmission-series specific
+  { ifField: "transmissions", operator: "eq", ifValue: "3000_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_3000, action: "filter" },
+  { ifField: "transmissions", operator: "eq", ifValue: "3500_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_3000, action: "filter" },
+  { ifField: "transmissions", operator: "eq", ifValue: "4000_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_4000, action: "filter" },
+  { ifField: "transmissions", operator: "eq", ifValue: "4500_evs", thenField: "ptoConfigs", thenAllowedValues: PTO_TRANS_4000, action: "filter" },
+];
+
 export function seedDefaults() {
   const now = Math.floor(Date.now() / 1000); // Unix seconds for SQLite integer timestamps
 
@@ -129,6 +153,20 @@ export function seedDefaults() {
   `);
   for (const d of DEFAULT_DROPDOWNS) {
     insertDropdown.run(d.fieldKey, JSON.stringify(d.options), now);
+  }
+
+  // Seed dependency rules only into an empty table — rules have no natural
+  // unique key, and re-inserting would resurrect rules the user deleted.
+  const ruleCount = (sqlite.prepare(`SELECT COUNT(*) AS n FROM dependency_rules`).get() as { n: number }).n;
+  if (ruleCount === 0) {
+    const insertRule = sqlite.prepare(`
+      INSERT INTO dependency_rules (if_field, operator, if_value, then_field, then_allowed_values, action, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const r of DEFAULT_DEPENDENCY_RULES) {
+      insertRule.run(r.ifField, r.operator, r.ifValue, r.thenField, JSON.stringify(r.thenAllowedValues), r.action, now);
+    }
+    console.log(`[seed] Inserted ${DEFAULT_DEPENDENCY_RULES.length} default dependency rules.`);
   }
 
   console.log("[seed] Default configs and dropdowns ready.");

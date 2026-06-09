@@ -56,11 +56,15 @@ export type InsertDropdownOptions = z.infer<typeof insertDropdownOptionsSchema>;
 export type DropdownOptions = typeof dropdownOptions.$inferSelect;
 
 // ─── Dependency Rules ────────────────────────────────────────────────────────
-// action = "filter": when ifField=ifValue, restrict thenField options to thenAllowedValues
-// action = "hide":   when ifField=ifValue, hide thenField from the request form
+// operator = "eq":  the rule fires when ifField === ifValue
+// operator = "neq": the rule fires when ifField !== ifValue (including when the
+//                   field has no selection yet — "show only when" semantics)
+// action = "filter": when the rule fires, restrict thenField options to thenAllowedValues
+// action = "hide":   when the rule fires, hide thenField from the request form
 export const dependencyRules = sqliteTable("dependency_rules", {
   id:                integer("id").primaryKey({ autoIncrement: true }),
   ifField:           text("if_field").notNull(),
+  operator:          text("operator").notNull().default("eq"),
   ifValue:           text("if_value").notNull(),
   thenField:         text("then_field").notNull(),
   thenAllowedValues: text("then_allowed_values").notNull(), // JSON stored as text
@@ -69,6 +73,7 @@ export const dependencyRules = sqliteTable("dependency_rules", {
 });
 
 export type DependencyRuleAction = "filter" | "hide";
+export type DependencyRuleOperator = "eq" | "neq";
 
 export const insertDependencyRuleSchema = createInsertSchema(dependencyRules).omit({
   id: true,
