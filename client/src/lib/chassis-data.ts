@@ -265,6 +265,37 @@ export const US_STATES = [
   { id: "WI", label: "Wisconsin" }, { id: "WY", label: "Wyoming" },
 ];
 
+// ─── Server fieldKey metadata ────────────────────────────────────────────────
+// Maps dropdown fieldKey → human label + admin grouping. Used by the admin UI
+// and by the request form to explain dependency-rule effects to the user.
+export const FIELD_KEY_META: Record<string, { label: string; group: string }> = {
+  engines:          { label: "Engines",            group: "Vehicle" },
+  hp:               { label: "Horsepower",         group: "Vehicle" },
+  engineBrakes:     { label: "Engine Brakes",      group: "Vehicle" },
+  transmissions:    { label: "Transmissions",      group: "Vehicle" },
+  frontAxles:       { label: "Front Axles",        group: "Vehicle" },
+  rearAxles:        { label: "Rear Axles",         group: "Vehicle" },
+  cabs:             { label: "Cab Config",         group: "Vehicle" },
+  brakes:           { label: "Brakes",             group: "Vehicle" },
+  apparatusTypes:   { label: "Apparatus Types",    group: "Vehicle" },
+  driverSeats:      { label: "Driver Seats",       group: "Interior" },
+  officerSeats:     { label: "Officer Seats",      group: "Interior" },
+  rearSeats:        { label: "Rear Seats",         group: "Interior" },
+  seatMaterials:    { label: "Seat Materials",     group: "Interior" },
+  sunVisors:        { label: "Sun Visors",         group: "Interior" },
+  ramMounts:        { label: "RAM Mounts",         group: "Interior" },
+  rearViewCameras:  { label: "Rear View Cameras",  group: "Interior" },
+  paintSchemes:     { label: "Paint Schemes",      group: "Exterior" },
+  airHornControls:  { label: "Air Horn Controls",  group: "Exterior" },
+  tankScr:          { label: "Tank SCR",           group: "Exterior" },
+  airHorns:         { label: "Air Horns",          group: "Exterior" },
+  bumpers:          { label: "Bumpers",            group: "Exterior" },
+  wheels:           { label: "Wheels",             group: "Exterior" },
+  ptoConfigs:       { label: "PTO Configs",        group: "Water/Pump" },
+  pumpTypes:        { label: "Pump Types",         group: "Water/Pump" },
+  salesPersons:     { label: "Sales Persons",      group: "General" },
+};
+
 // ─── Helper to filter master list by allowed IDs ─────────────────────────────
 export function filterOptions<T extends { id: string }>(
   all: T[],
@@ -293,6 +324,7 @@ export const FIELD_DISPLAY_META: { key: string; label: string; section: string }
   { key: "city",           label: "City",             section: "Basic Information" },
   { key: "state",          label: "State",            section: "Basic Information" },
   // Chassis
+  { key: "cabConfig",      label: "Cab Config",       section: "Chassis Selection" },
   { key: "apparatusType",  label: "Apparatus Type",   section: "Chassis Selection" },
   // Engine & Drivetrain
   { key: "engine",         label: "Engine",           section: "Engine & Drivetrain" },
@@ -301,7 +333,6 @@ export const FIELD_DISPLAY_META: { key: string; label: string; section: string }
   { key: "transmission",   label: "Transmission",     section: "Engine & Drivetrain" },
   { key: "topSpeed",       label: "Top Speed",        section: "Engine & Drivetrain" },
   // Axles & Brakes
-  { key: "cabConfig",      label: "Cab Config",       section: "Axles & Brakes" },
   { key: "caMeasurement",  label: "CA Measurement",   section: "Axles & Brakes" },
   { key: "frontAxle",      label: "Front Axle",       section: "Axles & Brakes" },
   { key: "awd",            label: "AWD",              section: "Axles & Brakes" },

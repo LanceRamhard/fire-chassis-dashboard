@@ -18,38 +18,12 @@ import type { ChassisConfig, DropdownOptions, DependencyRule } from "@shared/sch
 import {
   MANUFACTURERS, ALL_ENGINES, ALL_HP, ALL_TRANSMISSIONS,
   ALL_FRONT_AXLES, ALL_REAR_AXLES, ALL_CABS, ALL_BRAKES, APPARATUS_TYPES,
-  FIELD_DISPLAY_META, HIDDEN_FIELDS_KEY, getHiddenFields,
+  FIELD_DISPLAY_META, FIELD_KEY_META, HIDDEN_FIELDS_KEY, getHiddenFields,
 } from "@/lib/chassis-data";
 
-// ─── Shared field metadata ────────────────────────────────────────────────────
-// Maps fieldKey → human label, used throughout the admin UI
-const FIELD_META: Record<string, { label: string; group: string }> = {
-  engines:          { label: "Engines",            group: "Vehicle" },
-  hp:               { label: "Horsepower",         group: "Vehicle" },
-  engineBrakes:     { label: "Engine Brakes",      group: "Vehicle" },
-  transmissions:    { label: "Transmissions",      group: "Vehicle" },
-  frontAxles:       { label: "Front Axles",        group: "Vehicle" },
-  rearAxles:        { label: "Rear Axles",         group: "Vehicle" },
-  cabs:             { label: "Cab Types",          group: "Vehicle" },
-  brakes:           { label: "Brakes",             group: "Vehicle" },
-  apparatusTypes:   { label: "Apparatus Types",    group: "Vehicle" },
-  driverSeats:      { label: "Driver Seats",       group: "Interior" },
-  officerSeats:     { label: "Officer Seats",      group: "Interior" },
-  rearSeats:        { label: "Rear Seats",         group: "Interior" },
-  seatMaterials:    { label: "Seat Materials",     group: "Interior" },
-  sunVisors:        { label: "Sun Visors",         group: "Interior" },
-  ramMounts:        { label: "RAM Mounts",         group: "Interior" },
-  rearViewCameras:  { label: "Rear View Cameras",  group: "Interior" },
-  paintSchemes:     { label: "Paint Schemes",      group: "Exterior" },
-  airHornControls:  { label: "Air Horn Controls",  group: "Exterior" },
-  tankScr:          { label: "Tank SCR",           group: "Exterior" },
-  airHorns:         { label: "Air Horns",          group: "Exterior" },
-  bumpers:          { label: "Bumpers",            group: "Exterior" },
-  wheels:           { label: "Wheels",             group: "Exterior" },
-  ptoConfigs:       { label: "PTO Configs",        group: "Water/Pump" },
-  pumpTypes:        { label: "Pump Types",         group: "Water/Pump" },
-  salesPersons:     { label: "Sales Persons",      group: "General" },
-};
+// Shared field metadata (fieldKey → human label + group) lives in chassis-data
+// so the request form can use the same labels in its dependency hints.
+const FIELD_META = FIELD_KEY_META;
 
 type OptionItem = { id: string; label: string; code?: string };
 
@@ -672,13 +646,14 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   // Form state
   const [ifField, setIfField]   = useState("");
+  const [operator, setOperator] = useState<"eq" | "neq">("eq");
   const [ifValue, setIfValue]   = useState("");
   const [thenField, setThenField] = useState("");
   const [thenAllowed, setThenAllowed] = useState<string[]>([]);
   const [action, setAction] = useState<"filter" | "hide">("filter");
 
   const resetForm = () => {
-    setIfField(""); setIfValue(""); setThenField(""); setThenAllowed([]);
+    setIfField(""); setOperator("eq"); setIfValue(""); setThenField(""); setThenAllowed([]);
     setAction("filter");
     setEditingRule(null); setShowForm(false);
   };
@@ -686,6 +661,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
   const startEdit = (rule: DependencyRule) => {
     setEditingRule(rule);
     setIfField(rule.ifField);
+    setOperator((rule.operator as "eq" | "neq") ?? "eq");
     setIfValue(rule.ifValue);
     setThenField(rule.thenField);
     setThenAllowed((rule.thenAllowedValues ?? []) as string[]);
@@ -704,7 +680,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   const createMutation = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/dependency-rules", {
-      ifField, ifValue, thenField,
+      ifField, operator, ifValue, thenField,
       thenAllowedValues: action === "hide" ? [] : thenAllowed,
       action,
     }),
@@ -718,7 +694,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   const updateMutation = useMutation({
     mutationFn: async () => apiRequest("PATCH", `/api/dependency-rules/${editingRule!.id}`, {
-      ifField, ifValue, thenField,
+      ifField, operator, ifValue, thenField,
       thenAllowedValues: action === "hide" ? [] : thenAllowed,
       action,
     }),
@@ -764,7 +740,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
 
   // Group rules for display
   const rulesByIf = rules.reduce<Record<string, DependencyRule[]>>((acc, rule) => {
-    const k = `${rule.ifField}::${rule.ifValue}`;
+    const k = `${rule.ifField}::${rule.operator ?? "eq"}::${rule.ifValue}`;
     (acc[k] ??= []).push(rule);
     return acc;
   }, {});
@@ -776,7 +752,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
         style={{ background: "rgba(249,115,22,0.07)", border: "1px solid rgba(249,115,22,0.2)", fontSize: "11px", color: "var(--vipr-text-muted)" }}>
         <Link2 size={13} style={{ color: "var(--vipr-orange)", flexShrink: 0, marginTop: "1px" }} />
         <span>
-          Dependency rules cascade-filter the request form in real time. Two types: <strong>Filter Options</strong> narrows a target field's choices (<em>"IF Brakes = Air Disc THEN Rear Axles only shows 21k, 23k, 24k"</em>), <strong>Hide Field</strong> removes a field entirely (<em>"IF Cab Config = Regular THEN hide Rear Seats"</em>). Multiple rules can stack on the same field.
+          Dependency rules cascade-filter the request form in real time. Two types: <strong>Filter Options</strong> narrows a target field's choices (<em>"IF Brakes is Air Disc THEN Rear Axles only shows 21k, 23k, 24k"</em>), <strong>Hide Field</strong> removes a field entirely. The <strong>is not</strong> condition also fires while the source field is unselected — so <em>"IF Cab Config is not Crew THEN hide Rear Seats"</em> keeps Rear Seats hidden until Crew Cab is actually chosen. Multiple rules can stack on the same field.
         </span>
       </div>
 
@@ -788,16 +764,19 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
       ) : (
         <div className="space-y-2">
           {Object.entries(rulesByIf).map(([key, groupRules]) => {
-            const [iF, iV] = key.split("::");
+            const [iF, op, iV] = key.split("::");
             const ifLabel = FIELD_META[iF]?.label ?? iF;
             const ivLabel = labelFor(iF, iV);
+            const isNeq = op === "neq";
             return (
               <div key={key} style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", borderRadius: "6px", overflow: "hidden" }}>
                 {/* IF header */}
                 <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--vipr-border)", background: "rgba(249,115,22,0.04)", display: "flex", alignItems: "center", gap: "6px" }}>
                   <span style={{ fontSize: "9px", fontWeight: 700, color: "var(--vipr-orange)", textTransform: "uppercase", letterSpacing: "0.05em" }}>IF</span>
                   <span style={{ fontSize: "11px", color: "var(--vipr-text)" }}>{ifLabel}</span>
-                  <span style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>=</span>
+                  <span style={{ fontSize: "10px", fontWeight: isNeq ? 700 : 400, color: isNeq ? "var(--vipr-red)" : "var(--vipr-text-muted)" }}>
+                    {isNeq ? "is not" : "is"}
+                  </span>
                   <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--vipr-text)" }}>{ivLabel}</span>
                   <span style={{ fontSize: "9px", fontFamily: "monospace", color: "var(--vipr-text-faint)", marginLeft: "2px" }}>({iV})</span>
                 </div>
@@ -914,7 +893,7 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
           </div>
 
           {/* IF row */}
-          <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr", gap: "8px", alignItems: "end", marginBottom: "10px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 90px 1fr", gap: "8px", alignItems: "end", marginBottom: "10px" }}>
             <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--vipr-orange)", textTransform: "uppercase", letterSpacing: "0.05em", paddingBottom: "8px" }}>IF</div>
             <div>
               <div className="vipr-field-label" style={{ fontSize: "9px" }}>Field</div>
@@ -925,6 +904,15 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
                 {availableFields.map(([key, meta]) => (
                   <option key={key} value={key}>{meta.label}</option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <div className="vipr-field-label" style={{ fontSize: "9px" }}>Condition</div>
+              <select className="vipr-input" style={{ padding: "5px 8px", fontSize: "11px" }}
+                value={operator} onChange={e => setOperator(e.target.value as "eq" | "neq")}
+                data-testid="select-if-operator">
+                <option value="eq">is</option>
+                <option value="neq">is not</option>
               </select>
             </div>
             <div>
@@ -940,6 +928,11 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
               </select>
             </div>
           </div>
+          {operator === "neq" && (
+            <div style={{ fontSize: "10px", color: "var(--vipr-text-faint)", margin: "-4px 0 10px 36px" }}>
+              "is not" also fires while the field is unselected — use it for "show only when …" behavior.
+            </div>
+          )}
 
           {/* THEN row */}
           <div style={{ display: "grid", gridTemplateColumns: "28px 1fr", gap: "8px", alignItems: "start" }}>

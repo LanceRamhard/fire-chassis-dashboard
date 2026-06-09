@@ -223,6 +223,7 @@ export class DatabaseStorage implements IStorage {
   async createDependencyRule(rule: InsertDependencyRule): Promise<DependencyRule> {
     const result = db.insert(dependencyRules).values({
       ifField:           rule.ifField,
+      operator:          rule.operator ?? "eq",
       ifValue:           rule.ifValue,
       thenField:         rule.thenField,
       thenAllowedValues: toJson(rule.thenAllowedValues),
@@ -235,6 +236,7 @@ export class DatabaseStorage implements IStorage {
   async updateDependencyRule(id: number, rule: Partial<InsertDependencyRule>): Promise<DependencyRule | undefined> {
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (rule.ifField           !== undefined) updates.ifField           = rule.ifField;
+    if (rule.operator          !== undefined) updates.operator          = rule.operator;
     if (rule.ifValue           !== undefined) updates.ifValue           = rule.ifValue;
     if (rule.thenField         !== undefined) updates.thenField         = rule.thenField;
     if (rule.thenAllowedValues !== undefined) updates.thenAllowedValues = toJson(rule.thenAllowedValues);
