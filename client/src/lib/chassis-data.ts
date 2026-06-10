@@ -374,3 +374,26 @@ export function getHiddenFields(
   const v = (fieldRules as Record<string, unknown>)[HIDDEN_FIELDS_KEY];
   return Array.isArray(v) ? (v as string[]) : [];
 }
+
+// ─── Per-model required fields ───────────────────────────────────────────────
+// Sentinel key stored inside chassisConfigs.fieldRules. Its value is an array
+// of FormState formKey strings that MUST be filled before a request is
+// complete. Manufacturer and truckModel are always required and are not part
+// of this configurable set.
+export const REQUIRED_FIELDS_KEY = "__requiredFields__";
+
+// Fields a brand-new model starts out requiring. Mirrors the long-standing
+// hardcoded list so existing behavior is preserved until an admin changes it.
+export const DEFAULT_REQUIRED_FIELDS: string[] = [
+  "apparatusType", "cabConfig", "engine", "transmission", "frontAxle", "rearAxle",
+];
+
+// Read the required formKey list from a config's fieldRules JSON. When the
+// sentinel key is absent (model never configured for requirements) the default
+// set applies; an explicit empty array means "nothing extra is required".
+export function getRequiredFields(
+  fieldRules: Record<string, unknown> | null | undefined
+): string[] {
+  const v = fieldRules ? (fieldRules as Record<string, unknown>)[REQUIRED_FIELDS_KEY] : undefined;
+  return Array.isArray(v) ? (v as string[]) : DEFAULT_REQUIRED_FIELDS;
+}
