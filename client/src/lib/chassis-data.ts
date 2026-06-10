@@ -374,3 +374,26 @@ export function getHiddenFields(
   const v = (fieldRules as Record<string, unknown>)[HIDDEN_FIELDS_KEY];
   return Array.isArray(v) ? (v as string[]) : [];
 }
+
+// ─── Required fields (admin-configurable) ────────────────────────────────────
+// Settings key under which the required-field list is stored on the server.
+export const REQUIRED_FIELDS_KEY = "requiredFields";
+
+// Manufacturer and Truck Model are always required — the rest of the form
+// cannot function without them, so they aren't togglable in the admin.
+export const ALWAYS_REQUIRED_FIELDS: string[] = ["manufacturer", "truckModel"];
+
+// Boolean (checkbox) fields can't be meaningfully "required" — a checkbox always
+// has a value — so they're excluded from the requirable set.
+const BOOLEAN_FIELD_KEYS = new Set(["awd", "diffLock", "heatExchanger", "ledHeadlights"]);
+
+// Fields an admin may mark as required, grouped/ordered as in the request form.
+// Excludes the always-required keys and boolean checkboxes.
+export const REQUIRABLE_FIELDS: { key: string; label: string; section: string }[] =
+  FIELD_DISPLAY_META.filter(f => !BOOLEAN_FIELD_KEYS.has(f.key));
+
+// Default required selection — matches the form's original hardcoded list,
+// minus the always-required manufacturer/truckModel.
+export const DEFAULT_REQUIRED_FIELDS: string[] = [
+  "apparatusType", "engine", "transmission", "cabConfig", "frontAxle", "rearAxle",
+];

@@ -94,3 +94,18 @@ export const insertDependencyRuleSchema = createInsertSchema(dependencyRules).om
 
 export type InsertDependencyRule = z.infer<typeof insertDependencyRuleSchema>;
 export type DependencyRule = typeof dependencyRules.$inferSelect;
+
+// ─── App Settings (generic key → JSON value store) ───────────────────────────
+// A small key/value table for global app configuration that doesn't warrant its
+// own table — e.g. the list of which form fields are required. The value column
+// holds arbitrary JSON serialized as text.
+export const appSettings = sqliteTable("app_settings", {
+  key:       text("key").primaryKey(),
+  value:     text("value").notNull(),                 // JSON stored as text
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type AppSetting = typeof appSettings.$inferSelect;
+
+// Settings key holding the array of required FormState field keys.
+export const REQUIRED_FIELDS_KEY = "requiredFields";

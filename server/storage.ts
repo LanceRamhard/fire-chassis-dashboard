@@ -7,6 +7,7 @@ import {
   chassisConfigs,    type ChassisConfig,    type InsertChassisConfig,
   dropdownOptions,   type DropdownOptions,  type InsertDropdownOptions,
   dependencyRules,   type DependencyRule,   type InsertDependencyRule,
+  appSettings,
 } from "@shared/schema";
 
 // ─── DB path: use DATABASE_PATH env var or <cwd>/chassis.db ──────────────────
@@ -86,6 +87,10 @@ export interface IStorage {
   createDependencyRule(rule: InsertDependencyRule): Promise<DependencyRule>;
   updateDependencyRule(id: number, rule: Partial<InsertDependencyRule>): Promise<DependencyRule | undefined>;
   deleteDependencyRule(id: number): Promise<boolean>;
+
+  // App Settings (generic key → JSON value)
+  getAppSetting<T = unknown>(key: string): Promise<T | null>;
+  setAppSetting<T = unknown>(key: string, value: T): Promise<T>;
 }
 
 // ─── Database Storage ─────────────────────────────────────────────────────────
@@ -245,6 +250,24 @@ export class DatabaseStorage implements IStorage {
   async deleteDependencyRule(id: number): Promise<boolean> {
     const result = db.delete(dependencyRules).where(eq(dependencyRules.id, id)).returning().get();
     return !!result;
+  }
+
+  // ── App Settings ──────────────────────────────────────────────────────────
+  async getAppSetting<T = unknown>(key: string): Promise<T | null> {
+    const row = db.select().from(appSettings).where(eq(appSettings.key, key)).get();
+    return row ? fromJson<T>(row.value as unknown as string) : null;
+  }
+
+  async setAppSetting<T = unknown>(key: string, value: T): Promise<T> {
+    const now = new Date();
+    const existing = db.select().from(appSettings).where(eq(appSettings.key, key)).get();
+    if (existing) {
+      db.update(appSettings).set({ value: toJson(value), updatedAt: now })
+        .where(eq(appSettings.key, key)).run();
+    } else {
+      db.insert(appSettings).values({ key, value: toJson(value), updatedAt: now }).run();
+    }
+    return value;
   }
 }
 

@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Save, Trash2, Pencil, Info, Settings, Link2, List,
   GripVertical, ArrowUp, ArrowDown, ChevronDown, ChevronRight,
-  AlertTriangle, X, Check, EyeOff, Filter,
+  AlertTriangle, X, Check, EyeOff, Filter, Asterisk, Lock,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -20,6 +20,7 @@ import {
   MANUFACTURERS, ALL_ENGINES, ALL_HP, ALL_TRANSMISSIONS,
   ALL_FRONT_AXLES, ALL_REAR_AXLES, ALL_CABS, ALL_BRAKES, APPARATUS_TYPES,
   FIELD_DISPLAY_META, FIELD_KEY_META, HIDDEN_FIELDS_KEY, getHiddenFields,
+  REQUIRED_FIELDS_KEY, REQUIRABLE_FIELDS, ALWAYS_REQUIRED_FIELDS, DEFAULT_REQUIRED_FIELDS,
 } from "@/lib/chassis-data";
 
 // Shared field metadata (fieldKey → human label + group) lives in chassis-data
@@ -1078,9 +1079,145 @@ function DependencyRulesTab({ allDropdowns }: { allDropdowns: DropdownOptions[] 
   );
 }
 
+// ─── TAB 4: Required Fields ───────────────────────────────────────────────────
+function RequiredFieldsTab() {
+  const { toast } = useToast();
+
+  // Labels for the always-required keys, which aren't in FIELD_DISPLAY_META.
+  const ALWAYS_REQUIRED_LABELS: Record<string, string> = {
+    manufacturer: "Manufacturer",
+    truckModel:   "Truck Model",
+  };
+
+  const { data: setting } = useQuery<{ value: string[] | null }>({
+    queryKey: ["/api/settings", REQUIRED_FIELDS_KEY],
+  });
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dirty, setDirty] = useState(false);
+
+  // Sync local selection from the server once it loads (and on external changes,
+  // as long as the user hasn't started editing).
+  useEffect(() => {
+    if (dirty) return;
+    const initial = Array.isArray(setting?.value) ? setting!.value : DEFAULT_REQUIRED_FIELDS;
+    setSelected(new Set(initial));
+  }, [setting, dirty]);
+
+  const toggle = (key: string) =>
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+
+  const saveMutation = useMutation({
+    mutationFn: async () =>
+      apiRequest("PUT", `/api/settings/${REQUIRED_FIELDS_KEY}`, {
+        // Persist only requirable keys (never the always-required ones).
+        value: REQUIRABLE_FIELDS.filter(f => selected.has(f.key)).map(f => f.key),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", REQUIRED_FIELDS_KEY] });
+      toast({ title: "Required fields saved" });
+      setDirty(false);
+    },
+    onError: () => toast({ title: "Save failed", variant: "destructive" }),
+  });
+
+  const fieldsBySection = REQUIRABLE_FIELDS.reduce<Record<string, typeof REQUIRABLE_FIELDS>>((acc, f) => {
+    (acc[f.section] ??= []).push(f);
+    return acc;
+  }, {});
+
+  const requiredCount = ALWAYS_REQUIRED_FIELDS.length +
+    REQUIRABLE_FIELDS.filter(f => selected.has(f.key)).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-2 p-3 rounded"
+        style={{ background: "rgba(249,115,22,0.07)", border: "1px solid rgba(249,115,22,0.2)", fontSize: "11px", color: "var(--vipr-text-muted)" }}>
+        <Asterisk size={13} style={{ color: "var(--vipr-orange)", flexShrink: 0, marginTop: "1px" }} />
+        <span>
+          Check the fields a request must have filled in. Required fields show an orange <strong>*</strong> on
+          the form and count toward the "required remaining" indicator. A field hidden by a model or dependency
+          rule is skipped while it's hidden. <strong>Manufacturer</strong> and <strong>Truck Model</strong> are
+          always required.
+        </span>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--vipr-text)" }}>
+          {requiredCount} field{requiredCount === 1 ? "" : "s"} required
+        </span>
+        <div className="flex gap-3 items-center">
+          <button type="button"
+            style={{ fontSize: "10px", color: "var(--vipr-text-muted)", background: "none", border: "none", cursor: "pointer" }}
+            onClick={() => { setSelected(new Set(DEFAULT_REQUIRED_FIELDS)); setDirty(true); }}>
+            Reset to defaults
+          </button>
+          <button type="button"
+            style={{ fontSize: "10px", color: "var(--vipr-text-muted)", background: "none", border: "none", cursor: "pointer" }}
+            onClick={() => { setSelected(new Set()); setDirty(true); }}>
+            Clear all
+          </button>
+          <button className="vipr-btn-primary" onClick={() => saveMutation.mutate()}
+            disabled={!dirty || saveMutation.isPending}
+            data-testid="button-save-required">
+            <Save size={12} /> {dirty ? "Save Changes" : "Saved"}
+          </button>
+        </div>
+      </div>
+
+      {/* Always-required (locked) */}
+      <div style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", borderRadius: "4px", padding: "8px 10px" }}>
+        <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--vipr-text-muted)", marginBottom: "6px" }}>
+          Always Required
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+          {ALWAYS_REQUIRED_FIELDS.map(key => (
+            <span key={key} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--vipr-text-muted)" }}>
+              <Lock size={10} style={{ color: "var(--vipr-text-faint)" }} />
+              {ALWAYS_REQUIRED_LABELS[key] ?? key}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Configurable required fields, grouped by section */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        {Object.entries(fieldsBySection).map(([section, fields]) => (
+          <div key={section} style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", borderRadius: "4px", padding: "8px 10px" }}>
+            <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--vipr-text-muted)", marginBottom: "6px" }}>
+              {section}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px" }}>
+              {fields.map(f => {
+                const checked = selected.has(f.key);
+                return (
+                  <label key={f.key} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                    <input type="checkbox" className="vipr-checkbox"
+                      checked={checked}
+                      onChange={() => { toggle(f.key); setDirty(true); }}
+                      data-testid={`checkbox-required-${f.key}`} />
+                    <span style={{ fontSize: "11px", color: checked ? "var(--vipr-orange)" : "var(--vipr-text-muted)", fontWeight: checked ? 600 : 400 }}>
+                      {f.label}
+                      {checked && <Asterisk size={9} style={{ display: "inline", verticalAlign: "1px", marginLeft: "1px" }} />}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ConfigAdmin ─────────────────────────────────────────────────────────
 export default function ConfigAdmin() {
-  const [activeTab, setActiveTab] = useState<"models" | "dropdowns" | "dependencies">("models");
+  const [activeTab, setActiveTab] = useState<"models" | "dropdowns" | "dependencies" | "required">("models");
 
   // Fetch live dropdown options — used by all tabs
   const { data: allDropdowns = [], refetch: refetchDropdowns } = useQuery<DropdownOptions[]>({
@@ -1093,10 +1230,11 @@ export default function ConfigAdmin() {
     liveOptions[d.fieldKey] = (d.options ?? []) as unknown as OptionItem[];
   });
 
-  const tabs: { id: "models" | "dropdowns" | "dependencies"; label: string; icon: React.ReactNode }[] = [
+  const tabs: { id: "models" | "dropdowns" | "dependencies" | "required"; label: string; icon: React.ReactNode }[] = [
     { id: "models",       label: "Model Configs",     icon: <Settings size={12} /> },
     { id: "dropdowns",    label: "Dropdown Editor",   icon: <List size={12} /> },
     { id: "dependencies", label: "Dependency Rules",  icon: <Link2 size={12} /> },
+    { id: "required",     label: "Required Fields",   icon: <Asterisk size={12} /> },
   ];
 
   return (
@@ -1130,6 +1268,7 @@ export default function ConfigAdmin() {
         />
       )}
       {activeTab === "dependencies" && <DependencyRulesTab allDropdowns={allDropdowns} />}
+      {activeTab === "required" && <RequiredFieldsTab />}
     </div>
   );
 }
