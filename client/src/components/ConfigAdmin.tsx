@@ -20,6 +20,7 @@ import {
   MANUFACTURERS, ALL_ENGINES, ALL_HP, ALL_TRANSMISSIONS,
   ALL_FRONT_AXLES, ALL_REAR_AXLES, ALL_CABS, ALL_BRAKES, APPARATUS_TYPES,
   FIELD_DISPLAY_META, FIELD_KEY_META, HIDDEN_FIELDS_KEY, getHiddenFields,
+  REQUIRED_FIELDS_KEY, getRequiredFields,
 } from "@/lib/chassis-data";
 
 // Shared field metadata (fieldKey → human label + group) lives in chassis-data
@@ -99,8 +100,28 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
   const [hiddenFields, setHiddenFields] = useState<Set<string>>(
     new Set(getHiddenFields(existing?.fieldRules as Record<string, unknown> | null | undefined))
   );
-  const toggleField = (key: string) =>
+  // Field requirements — set of formKeys that MUST be filled for this model.
+  const [requiredFields, setRequiredFields] = useState<Set<string>>(
+    new Set(getRequiredFields(existing?.fieldRules as Record<string, unknown> | null | undefined))
+  );
+  const toggleField = (key: string) => {
+    const willHide = !hiddenFields.has(key);
     setHiddenFields(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+    // A hidden field can't be required — drop it from the required set.
+    if (willHide && requiredFields.has(key)) {
+      setRequiredFields(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+  const toggleRequired = (key: string) =>
+    setRequiredFields(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
@@ -134,7 +155,11 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
       manufacturer,
       modelId: modelId.trim().toLowerCase().replace(/\s+/g, "_"),
       modelLabel: modelLabel.trim(),
-      fieldRules: { ...rules, [HIDDEN_FIELDS_KEY]: Array.from(hiddenFields) },
+      fieldRules: {
+        ...rules,
+        [HIDDEN_FIELDS_KEY]: Array.from(hiddenFields),
+        [REQUIRED_FIELDS_KEY]: Array.from(requiredFields),
+      },
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/configs"] });
@@ -189,11 +214,11 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
           <div className="flex items-center justify-between mb-2">
             <div>
               <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--vipr-text)", letterSpacing: "0.04em" }}>
-                Visible Fields
+                Visible &amp; Required Fields
               </div>
               <div style={{ fontSize: "10px", color: "var(--vipr-text-faint)" }}>
-                Uncheck any field to hide it from the request form when this model is selected
-                ({FIELD_DISPLAY_META.length - hiddenFields.size} of {FIELD_DISPLAY_META.length} visible)
+                Uncheck a field to hide it; toggle the <span style={{ color: "var(--vipr-orange)", fontWeight: 700 }}>*</span> to require it.
+                ({FIELD_DISPLAY_META.length - hiddenFields.size} visible · {requiredFields.size} required)
               </div>
             </div>
             <div className="flex gap-3">
@@ -204,7 +229,7 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
               </button>
               <button type="button"
                 style={{ fontSize: "10px", color: "var(--vipr-text-muted)", background: "none", border: "none", cursor: "pointer" }}
-                onClick={() => setHiddenFields(new Set(FIELD_DISPLAY_META.map(f => f.key)))}>
+                onClick={() => { setHiddenFields(new Set(FIELD_DISPLAY_META.map(f => f.key))); setRequiredFields(new Set()); }}>
                 Hide all
               </button>
             </div>
@@ -218,16 +243,35 @@ function ModelEditor({ manufacturer, existing, trigger, liveOptions }: {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px" }}>
                   {fields.map(f => {
                     const visible = !hiddenFields.has(f.key);
+                    const required = requiredFields.has(f.key);
                     return (
-                      <label key={f.key} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
-                        <input type="checkbox" className="vipr-checkbox"
-                          checked={visible}
-                          onChange={() => toggleField(f.key)}
-                          data-testid={`checkbox-field-${f.key}`} />
-                        <span style={{ fontSize: "11px", color: visible ? "var(--vipr-text-muted)" : "var(--vipr-text-faint)", textDecoration: visible ? "none" : "line-through" }}>
-                          {f.label}
-                        </span>
-                      </label>
+                      <div key={f.key} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", flex: 1, minWidth: 0 }}>
+                          <input type="checkbox" className="vipr-checkbox"
+                            checked={visible}
+                            onChange={() => toggleField(f.key)}
+                            data-testid={`checkbox-field-${f.key}`} />
+                          <span style={{ fontSize: "11px", color: visible ? "var(--vipr-text-muted)" : "var(--vipr-text-faint)", textDecoration: visible ? "none" : "line-through", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {f.label}
+                          </span>
+                        </label>
+                        <button type="button"
+                          disabled={!visible}
+                          onClick={() => toggleRequired(f.key)}
+                          title={required ? "Required — click to make optional" : "Optional — click to make required"}
+                          data-testid={`toggle-required-${f.key}`}
+                          style={{
+                            flexShrink: 0, width: "18px", height: "18px", lineHeight: 1, padding: 0,
+                            borderRadius: "3px", cursor: visible ? "pointer" : "default",
+                            fontSize: "13px", fontWeight: 700,
+                            border: `1px solid ${required ? "rgba(249,115,22,0.5)" : "var(--vipr-border)"}`,
+                            background: required ? "var(--vipr-orange-glow)" : "transparent",
+                            color: required ? "var(--vipr-orange)" : "var(--vipr-text-faint)",
+                            opacity: visible ? 1 : 0.35,
+                          }}>
+                          *
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
