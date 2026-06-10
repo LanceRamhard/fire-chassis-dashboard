@@ -50,6 +50,30 @@ export function createTables() {
       value      TEXT    NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS quotes (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      title          TEXT    NOT NULL,
+      manufacturer   TEXT    NOT NULL,
+      truck_model    TEXT,
+      apparatus_type TEXT,
+      quoted_price   TEXT,
+      quote_date     TEXT,
+      notes          TEXT,
+      uploaded_by    TEXT,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quote_files (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      quote_id      INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+      file_name     TEXT    NOT NULL,
+      original_name TEXT    NOT NULL,
+      mime_type     TEXT    NOT NULL,
+      file_size     INTEGER NOT NULL,
+      created_at    INTEGER NOT NULL
+    );
   `);
 
   // Idempotent migration for pre-existing DBs: the legacy table stored a single
