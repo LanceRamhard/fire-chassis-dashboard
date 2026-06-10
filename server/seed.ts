@@ -44,6 +44,12 @@ export function createTables() {
       action               TEXT    NOT NULL DEFAULT 'filter',
       updated_at           INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key        TEXT    PRIMARY KEY,
+      value      TEXT    NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   // Idempotent migration for pre-existing DBs: the legacy table stored a single

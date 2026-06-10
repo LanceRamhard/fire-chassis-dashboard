@@ -19,6 +19,7 @@ import {
   SALES_PERSONS, US_STATES, PTO_CONFIGS, PUMP_TYPES,
   FIELD_KEY_META, FIELD_DISPLAY_META,
   filterOptions, getHiddenFields,
+  REQUIRED_FIELDS_KEY, ALWAYS_REQUIRED_FIELDS, DEFAULT_REQUIRED_FIELDS,
 } from "@/lib/chassis-data";
 
 type OptionItem = { id: string; label: string; code?: string };
@@ -94,12 +95,6 @@ const FORM_KEY_LABELS: Record<string, string> = {
   truckModel:   "Truck Model",
   ...Object.fromEntries(FIELD_DISPLAY_META.map(f => [f.key, f.label])),
 };
-
-// Selections the request can't be submitted to a manufacturer without
-const REQUIRED_FIELDS: (keyof FormState)[] = [
-  "manufacturer", "truckModel", "apparatusType", "engine", "transmission",
-  "cabConfig", "frontAxle", "rearAxle",
-];
 
 // Module-level pending load — survives tab remounts.
 // SavedRequests writes here; RequestForm reads + clears on mount.
@@ -226,14 +221,14 @@ function VChoice(props: Parameters<typeof VSelect>[0]) {
 }
 
 function VInput({
-  label, code, value, onChange, placeholder = "", type = "text",
+  label, code, value, onChange, placeholder = "", type = "text", required,
 }: {
   label: string; code?: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string;
+  placeholder?: string; type?: string; required?: boolean;
 }) {
   return (
     <div>
-      <VLabel label={label} code={code} />
+      <VLabel label={label} code={code} required={required} />
       <input
         className="vipr-input"
         type={type}
@@ -285,6 +280,25 @@ export default function RequestForm() {
   const { data: configs = [] } = useQuery<ChassisConfig[]>({ queryKey: ["/api/configs"] });
   const { data: allDropdownRows = [] } = useQuery<DropdownOptions[]>({ queryKey: ["/api/dropdown-options"] });
   const { data: depRules = [] } = useQuery<DependencyRule[]>({ queryKey: ["/api/dependency-rules"] });
+  const { data: requiredSetting } = useQuery<{ value: string[] | null }>({
+    queryKey: ["/api/settings", REQUIRED_FIELDS_KEY],
+  });
+
+  // Effective required fields: the always-required keys plus the admin's
+  // configured selection (falling back to defaults until the setting loads).
+  const requiredFields = useMemo<(keyof FormState)[]>(() => {
+    const configured = Array.isArray(requiredSetting?.value)
+      ? requiredSetting!.value
+      : DEFAULT_REQUIRED_FIELDS;
+    return [...ALWAYS_REQUIRED_FIELDS, ...configured].filter(
+      (k, i, arr) => arr.indexOf(k) === i
+    ) as (keyof FormState)[];
+  }, [requiredSetting]);
+
+  const isRequired = useCallback(
+    (formKey: keyof FormState) => requiredFields.includes(formKey),
+    [requiredFields]
+  );
 
   // Build a convenient lookup: fieldKey → OptionItem[]
   // Falls back to the hardcoded chassis-data arrays when server data is absent (initial load)
@@ -488,7 +502,7 @@ export default function RequestForm() {
   }, [form, configs, getOptions, isHidden, toast]);
 
   // ── Required fields & section progress ────────────────────────────────────
-  const missingRequired = REQUIRED_FIELDS.filter(k => {
+  const missingRequired = requiredFields.filter(k => {
     if (k !== "manufacturer" && k !== "truckModel" && isHidden(k)) return false;
     const v = form[k];
     return !(typeof v === "string" && v);
@@ -644,13 +658,13 @@ export default function RequestForm() {
             <VSection title="Basic Information" icon={<FileText size={13} />} id="section-basic"
               progress={progressOf("configName","requestDate","dateRequired","salesPerson","customerName","city","state")}>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                {show("configName",   <VInput label="Config Name" value={form.configName} onChange={up("configName")} placeholder="Auto-generated" />)}
-                {show("requestDate",  <VInput label="Request Date" value={form.requestDate} onChange={up("requestDate")} type="date" />)}
-                {show("dateRequired", <VInput label="Date Required" value={form.dateRequired} onChange={up("dateRequired")} type="date" />)}
-                {show("salesPerson",  <VSelect label="Sales Person" value={form.salesPerson} onChange={up("salesPerson")} options={getOptions("salesPerson")} />)}
-                {show("customerName", <VInput label="Customer Name" value={form.customerName} onChange={up("customerName")} placeholder="Customer name" />)}
-                {show("city",         <VInput label="City" value={form.city} onChange={up("city")} placeholder="City" />)}
-                {show("state",        <VSelect label="State" value={form.state} onChange={up("state")} options={US_STATES} />)}
+                {show("configName",   <VInput label="Config Name" required={isRequired("configName")} value={form.configName} onChange={up("configName")} placeholder="Auto-generated" />)}
+                {show("requestDate",  <VInput label="Request Date" required={isRequired("requestDate")} value={form.requestDate} onChange={up("requestDate")} type="date" />)}
+                {show("dateRequired", <VInput label="Date Required" required={isRequired("dateRequired")} value={form.dateRequired} onChange={up("dateRequired")} type="date" />)}
+                {show("salesPerson",  <VSelect label="Sales Person" required={isRequired("salesPerson")} value={form.salesPerson} onChange={up("salesPerson")} options={getOptions("salesPerson")} />)}
+                {show("customerName", <VInput label="Customer Name" required={isRequired("customerName")} value={form.customerName} onChange={up("customerName")} placeholder="Customer name" />)}
+                {show("city",         <VInput label="City" required={isRequired("city")} value={form.city} onChange={up("city")} placeholder="City" />)}
+                {show("state",        <VSelect label="State" required={isRequired("state")} value={form.state} onChange={up("state")} options={US_STATES} />)}
               </div>
             </VSection>
           )}
@@ -661,7 +675,7 @@ export default function RequestForm() {
             <div className="flex flex-wrap items-end gap-4">
               {/* Manufacturer pills */}
               <div>
-                <VLabel label="Manufacturer" required />
+                <VLabel label="Manufacturer" required={isRequired("manufacturer")} />
                 <div className="flex gap-1.5 flex-wrap">
                   {MANUFACTURERS.map(m => (
                     <button
@@ -680,7 +694,7 @@ export default function RequestForm() {
               <div className="min-w-[160px]">
                 <VSelect
                   label="Truck Model"
-                  required
+                  required={isRequired("truckModel")}
                   value={form.truckModel}
                   onChange={up("truckModel")}
                   options={modelsForMfr.map(c => ({ id: c.modelId, label: c.modelLabel }))}
@@ -691,14 +705,14 @@ export default function RequestForm() {
 
               {/* Cab config — drives seats, axles and more, so it lives up front */}
               {show("cabConfig",
-                <VChoice label="Cab Config" code="829" required value={form.cabConfig} onChange={up("cabConfig")}
+                <VChoice label="Cab Config" code="829" required={isRequired("cabConfig")} value={form.cabConfig} onChange={up("cabConfig")}
                   options={getOptions("cabConfig")} disabled={!form.truckModel}
                   placeholder={form.truckModel ? undefined : "Select model first"} hint={filterHint("cabConfig")} />
               )}
 
               {/* Apparatus type */}
               {show("apparatusType",
-                <VChoice label="Apparatus Type" required value={form.apparatusType} onChange={up("apparatusType")}
+                <VChoice label="Apparatus Type" required={isRequired("apparatusType")} value={form.apparatusType} onChange={up("apparatusType")}
                   options={getOptions("apparatusType")} disabled={!form.truckModel}
                   placeholder={form.truckModel ? undefined : "Select model first"} hint={filterHint("apparatusType")} />
               )}
@@ -723,18 +737,18 @@ export default function RequestForm() {
               <VSection title="Engine & Drivetrain" icon={<Cog size={13} />} id="section-engine"
                 progress={progressOf("engine","engineHp","engineBrake","transmission","topSpeed")}>
                 <div className="grid grid-cols-2 gap-3">
-                  {show("engine",       <VSelect label="Engine" code="101" required value={form.engine} onChange={up("engine")}
+                  {show("engine",       <VSelect label="Engine" code="101" required={isRequired("engine")} value={form.engine} onChange={up("engine")}
                     options={getOptions("engine")} disabled={!form.truckModel}
                     placeholder={form.truckModel ? undefined : "Select model first"} hint={filterHint("engine")} />)}
-                  {show("engineHp",     <VChoice label="Engine HP" value={form.engineHp} onChange={up("engineHp")}
+                  {show("engineHp",     <VChoice label="Engine HP" required={isRequired("engineHp")} value={form.engineHp} onChange={up("engineHp")}
                     options={getOptions("engineHp")} disabled={!form.truckModel}
                     placeholder={form.truckModel ? undefined : "Select model first"} hint={filterHint("engineHp")} />)}
-                  {show("engineBrake",  <VChoice label="Engine Brake" code="128" value={form.engineBrake} onChange={up("engineBrake")}
+                  {show("engineBrake",  <VChoice label="Engine Brake" code="128" required={isRequired("engineBrake")} value={form.engineBrake} onChange={up("engineBrake")}
                     options={getOptions("engineBrake")} hint={filterHint("engineBrake")} />)}
-                  {show("transmission", <VChoice label="Transmission" code="342" required value={form.transmission} onChange={up("transmission")}
+                  {show("transmission", <VChoice label="Transmission" code="342" required={isRequired("transmission")} value={form.transmission} onChange={up("transmission")}
                     options={getOptions("transmission")} disabled={!form.truckModel}
                     placeholder={form.truckModel ? undefined : "Select model first"} hint={filterHint("transmission")} />)}
-                  {show("topSpeed",     <VInput label="Top Speed" code="79A" value={form.topSpeed} onChange={up("topSpeed")}
+                  {show("topSpeed",     <VInput label="Top Speed" code="79A" required={isRequired("topSpeed")} value={form.topSpeed} onChange={up("topSpeed")}
                     placeholder="mph" type="number" />)}
                 </div>
               </VSection>
@@ -745,14 +759,14 @@ export default function RequestForm() {
               <VSection title="Axles & Brakes" icon={<Cog size={13} />} id="section-axles"
                 progress={progressOf("caMeasurement","frontAxle","rearAxle","brakes")}>
                 <div className="grid grid-cols-2 gap-3">
-                  {show("caMeasurement", <VInput label="CA Measurement" value={form.caMeasurement} onChange={up("caMeasurement")} placeholder='e.g. 84"' />)}
+                  {show("caMeasurement", <VInput label="CA Measurement" required={isRequired("caMeasurement")} value={form.caMeasurement} onChange={up("caMeasurement")} placeholder='e.g. 84"' />)}
                   {show("brakes",
-                    <VChoice label="Brakes" value={form.brakes} onChange={up("brakes")}
+                    <VChoice label="Brakes" required={isRequired("brakes")} value={form.brakes} onChange={up("brakes")}
                       options={getOptions("brakes")} hint={filterHint("brakes")} />
                   )}
                   {anyVisible("frontAxle","awd") && (
                     <div>
-                      {show("frontAxle", <VSelect label="Front Axle" code="400" required value={form.frontAxle} onChange={up("frontAxle")}
+                      {show("frontAxle", <VSelect label="Front Axle" code="400" required={isRequired("frontAxle")} value={form.frontAxle} onChange={up("frontAxle")}
                         options={getOptions("frontAxle")} disabled={!form.truckModel}
                         placeholder={form.truckModel ? undefined : "Select model first"} hint={filterHint("frontAxle")} />)}
                       {show("awd", <div className="mt-1.5"><VCheck label="AWD" code="400" checked={form.awd} onChange={up("awd")} /></div>)}
@@ -760,7 +774,7 @@ export default function RequestForm() {
                   )}
                   {anyVisible("rearAxle","diffLock") && (
                     <div>
-                      {show("rearAxle", <VSelect label="Rear Axle" code="420" required value={form.rearAxle} onChange={up("rearAxle")}
+                      {show("rearAxle", <VSelect label="Rear Axle" code="420" required={isRequired("rearAxle")} value={form.rearAxle} onChange={up("rearAxle")}
                         options={getOptions("rearAxle")} disabled={!form.truckModel}
                         placeholder={form.truckModel ? undefined : "Select model first"} hint={filterHint("rearAxle")} />)}
                       {show("diffLock", <div className="mt-1.5"><VCheck label="Diff Lock" code="452" checked={form.diffLock} onChange={up("diffLock")} /></div>)}
@@ -776,12 +790,12 @@ export default function RequestForm() {
             <VSection title="Water & Pump Systems" icon={<Droplets size={13} />} id="section-water"
               progress={progressOf("waterTankSize","pumpType","ptoConfig")}>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {show("waterTankSize", <VInput label="Tank Size (gal)" value={form.waterTankSize} onChange={up("waterTankSize")} placeholder="gallons" type="number" />)}
-                {show("pumpType",      <VChoice label="Pump Type" code="AA3" value={form.pumpType} onChange={up("pumpType")}
+                {show("waterTankSize", <VInput label="Tank Size (gal)" required={isRequired("waterTankSize")} value={form.waterTankSize} onChange={up("waterTankSize")} placeholder="gallons" type="number" />)}
+                {show("pumpType",      <VChoice label="Pump Type" code="AA3" required={isRequired("pumpType")} value={form.pumpType} onChange={up("pumpType")}
                   options={getOptions("pumpType")} hint={filterHint("pumpType")} />)}
                 {show("ptoConfig",
                   <div className="col-span-2">
-                    <VSelect label="PTO Configuration" code="362" value={form.ptoConfig} onChange={up("ptoConfig")}
+                    <VSelect label="PTO Configuration" code="362" required={isRequired("ptoConfig")} value={form.ptoConfig} onChange={up("ptoConfig")}
                       options={getOptions("ptoConfig")} hint={filterHint("ptoConfig")} />
                   </div>
                 )}
@@ -799,19 +813,19 @@ export default function RequestForm() {
             <VSection title="Interior Configuration" icon={<Armchair size={13} />} id="section-interior"
               progress={progressOf("driverSeat","officerSeat","rearSeats","seatMaterial","sunVisor","ramMount","rearViewCamera")}>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {show("driverSeat",     <VChoice label="Driver Seat" code="756" value={form.driverSeat} onChange={up("driverSeat")}
+                {show("driverSeat",     <VChoice label="Driver Seat" code="756" required={isRequired("driverSeat")} value={form.driverSeat} onChange={up("driverSeat")}
                   options={getOptions("driverSeat")} hint={filterHint("driverSeat")} />)}
-                {show("officerSeat",    <VSelect label="Officer Seat" code="760" value={form.officerSeat} onChange={up("officerSeat")}
+                {show("officerSeat",    <VSelect label="Officer Seat" code="760" required={isRequired("officerSeat")} value={form.officerSeat} onChange={up("officerSeat")}
                   options={getOptions("officerSeat")} hint={filterHint("officerSeat")} />)}
-                {show("rearSeats",      <VSelect label="Rear Seats" code="762" value={form.rearSeats} onChange={up("rearSeats")}
+                {show("rearSeats",      <VSelect label="Rear Seats" code="762" required={isRequired("rearSeats")} value={form.rearSeats} onChange={up("rearSeats")}
                   options={getOptions("rearSeats")} hint={filterHint("rearSeats")} />)}
-                {show("seatMaterial",   <VChoice label="Seat Material" code="758" value={form.seatMaterial} onChange={up("seatMaterial")}
+                {show("seatMaterial",   <VChoice label="Seat Material" code="758" required={isRequired("seatMaterial")} value={form.seatMaterial} onChange={up("seatMaterial")}
                   options={getOptions("seatMaterial")} hint={filterHint("seatMaterial")} />)}
-                {show("sunVisor",       <VChoice label="Sun Visor" code="764" value={form.sunVisor} onChange={up("sunVisor")}
+                {show("sunVisor",       <VChoice label="Sun Visor" code="764" required={isRequired("sunVisor")} value={form.sunVisor} onChange={up("sunVisor")}
                   options={getOptions("sunVisor")} hint={filterHint("sunVisor")} />)}
-                {show("ramMount",       <VChoice label="Ram Mount" value={form.ramMount} onChange={up("ramMount")}
+                {show("ramMount",       <VChoice label="Ram Mount" required={isRequired("ramMount")} value={form.ramMount} onChange={up("ramMount")}
                   options={getOptions("ramMount")} hint={filterHint("ramMount")} />)}
-                {show("rearViewCamera", <VChoice label="Rear View Camera" value={form.rearViewCamera} onChange={up("rearViewCamera")}
+                {show("rearViewCamera", <VChoice label="Rear View Camera" required={isRequired("rearViewCamera")} value={form.rearViewCamera} onChange={up("rearViewCamera")}
                   options={getOptions("rearViewCamera")} hint={filterHint("rearViewCamera")} />)}
               </div>
             </VSection>
@@ -822,19 +836,19 @@ export default function RequestForm() {
             <VSection title="Exterior Configuration" icon={<Palette size={13} />} id="section-exterior"
               progress={progressOf("paintColor","paintCode","paintScheme","airHornControls","tankScr","airHorns","bumper","wheels")}>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {show("paintColor",      <VInput label="Paint Color" code="065" value={form.paintColor} onChange={up("paintColor")} placeholder="e.g. Red" />)}
-                {show("paintCode",       <VInput label="Paint Code" value={form.paintCode} onChange={up("paintCode")} placeholder="e.g. PPG 70117" />)}
-                {show("paintScheme",     <VSelect label="Paint Scheme" value={form.paintScheme} onChange={up("paintScheme")}
+                {show("paintColor",      <VInput label="Paint Color" code="065" required={isRequired("paintColor")} value={form.paintColor} onChange={up("paintColor")} placeholder="e.g. Red" />)}
+                {show("paintCode",       <VInput label="Paint Code" required={isRequired("paintCode")} value={form.paintCode} onChange={up("paintCode")} placeholder="e.g. PPG 70117" />)}
+                {show("paintScheme",     <VSelect label="Paint Scheme" required={isRequired("paintScheme")} value={form.paintScheme} onChange={up("paintScheme")}
                   options={getOptions("paintScheme")} hint={filterHint("paintScheme")} />)}
-                {show("airHornControls", <VSelect label="Air Horn Controls" code="264" value={form.airHornControls} onChange={up("airHornControls")}
+                {show("airHornControls", <VSelect label="Air Horn Controls" code="264" required={isRequired("airHornControls")} value={form.airHornControls} onChange={up("airHornControls")}
                   options={getOptions("airHornControls")} hint={filterHint("airHornControls")} />)}
-                {show("tankScr",         <VChoice label="Tank / SCR" code="677" value={form.tankScr} onChange={up("tankScr")}
+                {show("tankScr",         <VChoice label="Tank / SCR" code="677" required={isRequired("tankScr")} value={form.tankScr} onChange={up("tankScr")}
                   options={getOptions("tankScr")} hint={filterHint("tankScr")} />)}
-                {show("airHorns",        <VChoice label="Air Horns" code="727" value={form.airHorns} onChange={up("airHorns")}
+                {show("airHorns",        <VChoice label="Air Horns" code="727" required={isRequired("airHorns")} value={form.airHorns} onChange={up("airHorns")}
                   options={getOptions("airHorns")} hint={filterHint("airHorns")} />)}
-                {show("bumper",          <VSelect label="Bumper" code="556" value={form.bumper} onChange={up("bumper")}
+                {show("bumper",          <VSelect label="Bumper" code="556" required={isRequired("bumper")} value={form.bumper} onChange={up("bumper")}
                   options={getOptions("bumper")} hint={filterHint("bumper")} />)}
-                {show("wheels",          <VSelect label="Wheels" code="502/505" value={form.wheels} onChange={up("wheels")}
+                {show("wheels",          <VSelect label="Wheels" code="502/505" required={isRequired("wheels")} value={form.wheels} onChange={up("wheels")}
                   options={getOptions("wheels")} hint={filterHint("wheels")} />)}
                 {show("ledHeadlights",
                   <div className="flex items-end">
@@ -847,7 +861,7 @@ export default function RequestForm() {
 
           {/* ── Comments ────────────────────────────────────────────────── */}
           {show("comments",
-            <VSection title="Additional Comments & Specifications" icon={<FileText size={13} />} id="section-comments">
+            <VSection title={`Additional Comments & Specifications${isRequired("comments") ? " *" : ""}`} icon={<FileText size={13} />} id="section-comments">
               <textarea
                 value={form.comments}
                 onChange={e => up("comments")(e.target.value)}

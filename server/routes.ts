@@ -136,5 +136,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ success: true });
   });
 
+  // ── App Settings (generic key → JSON value) ───────────────────────────────
+  // GET always responds 200 — an unset key returns { value: null } so clients
+  // can cleanly fall back to their defaults.
+  app.get("/api/settings/:key", async (req, res) => {
+    const value = await storage.getAppSetting(req.params.key);
+    res.json({ key: req.params.key, value });
+  });
+
+  app.put("/api/settings/:key", async (req, res) => {
+    const schema = z.object({ value: z.unknown() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const value = await storage.setAppSetting(req.params.key, parsed.data.value);
+    res.json({ key: req.params.key, value });
+  });
+
   return httpServer;
 }
