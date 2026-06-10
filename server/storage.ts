@@ -295,6 +295,9 @@ export class DatabaseStorage implements IStorage {
       manufacturer:  quote.manufacturer,
       truckModel:    quote.truckModel ?? null,
       apparatusType: quote.apparatusType ?? null,
+      engine:        quote.engine ?? null,
+      frontAxle:     quote.frontAxle ?? null,
+      rearAxle:      quote.rearAxle ?? null,
       quotedPrice:   quote.quotedPrice ?? null,
       quoteDate:     quote.quoteDate ?? null,
       notes:         quote.notes ?? null,
@@ -315,6 +318,9 @@ export class DatabaseStorage implements IStorage {
     if (quote.manufacturer  !== undefined) updates.manufacturer  = quote.manufacturer;
     if (quote.truckModel    !== undefined) updates.truckModel    = quote.truckModel;
     if (quote.apparatusType !== undefined) updates.apparatusType = quote.apparatusType;
+    if (quote.engine        !== undefined) updates.engine        = quote.engine;
+    if (quote.frontAxle     !== undefined) updates.frontAxle     = quote.frontAxle;
+    if (quote.rearAxle      !== undefined) updates.rearAxle      = quote.rearAxle;
     if (quote.quotedPrice   !== undefined) updates.quotedPrice   = quote.quotedPrice;
     if (quote.quoteDate     !== undefined) updates.quoteDate     = quote.quoteDate;
     if (quote.notes         !== undefined) updates.notes         = quote.notes;

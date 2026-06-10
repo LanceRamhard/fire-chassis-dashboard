@@ -4,6 +4,7 @@ import { API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion, Link2,
+  Cog, Gauge,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -13,7 +14,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { QuoteWithFiles, ChassisRequest, ChassisConfig } from "@shared/schema";
-import { MANUFACTURERS, APPARATUS_TYPES } from "@/lib/chassis-data";
+import { MANUFACTURERS, APPARATUS_TYPES, ALL_ENGINES, ALL_FRONT_AXLES, ALL_REAR_AXLES } from "@/lib/chassis-data";
 import { format } from "date-fns";
 
 // Resolve a request's truck-model id (e.g. "m2_106") to its label ("M2 106").
@@ -41,6 +42,9 @@ export function UploadQuoteDialog(
   const [manufacturer, setManufacturer] = useState("");
   const [truckModel, setTruckModel] = useState("");
   const [apparatusType, setApparatusType] = useState("");
+  const [engine, setEngine] = useState("");
+  const [frontAxle, setFrontAxle] = useState("");
+  const [rearAxle, setRearAxle] = useState("");
   const [quotedPrice, setQuotedPrice] = useState("");
   const [quoteDate, setQuoteDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -53,6 +57,7 @@ export function UploadQuoteDialog(
   const reset = () => {
     setRequestId(presetRequestId ? String(presetRequestId) : "");
     setTitle(""); setManufacturer(""); setTruckModel(""); setApparatusType("");
+    setEngine(""); setFrontAxle(""); setRearAxle("");
     setQuotedPrice(""); setQuoteDate(""); setNotes(""); setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -68,6 +73,9 @@ export function UploadQuoteDialog(
     setManufacturer(req.manufacturer);
     setTruckModel(modelLabelFor(req, configs));
     if (fd?.apparatusType) setApparatusType(fd.apparatusType);
+    if (fd?.engine)        setEngine(fd.engine);
+    if (fd?.frontAxle)     setFrontAxle(fd.frontAxle);
+    if (fd?.rearAxle)      setRearAxle(fd.rearAxle);
   };
 
   const uploadMutation = useMutation({
@@ -78,6 +86,9 @@ export function UploadQuoteDialog(
       fd.append("manufacturer", manufacturer);
       if (truckModel.trim())  fd.append("truckModel", truckModel.trim());
       if (apparatusType)      fd.append("apparatusType", apparatusType);
+      if (engine)             fd.append("engine", engine);
+      if (frontAxle)          fd.append("frontAxle", frontAxle);
+      if (rearAxle)           fd.append("rearAxle", rearAxle);
       if (quotedPrice.trim()) fd.append("quotedPrice", quotedPrice.trim());
       if (quoteDate)          fd.append("quoteDate", quoteDate);
       if (notes.trim())       fd.append("notes", notes.trim());
@@ -176,6 +187,30 @@ export function UploadQuoteDialog(
               data-testid="select-quote-apparatus">
               <option value="">Select…</option>
               {APPARATUS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="vipr-field-label">Engine</div>
+            <select className="vipr-input" value={engine} onChange={e => setEngine(e.target.value)}
+              data-testid="select-quote-engine">
+              <option value="">Select…</option>
+              {ALL_ENGINES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="vipr-field-label">Front Axle</div>
+            <select className="vipr-input" value={frontAxle} onChange={e => setFrontAxle(e.target.value)}
+              data-testid="select-quote-front-axle">
+              <option value="">Select…</option>
+              {ALL_FRONT_AXLES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="vipr-field-label">Rear Axle</div>
+            <select className="vipr-input" value={rearAxle} onChange={e => setRearAxle(e.target.value)}
+              data-testid="select-quote-rear-axle">
+              <option value="">Select…</option>
+              {ALL_REAR_AXLES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </div>
           <div>
@@ -315,6 +350,12 @@ export default function PreviouslyQuoted() {
           {filtered.map(q => {
             const mfrLabel = MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer;
             const apparatusLabel = APPARATUS_TYPES.find(t => t.id === q.apparatusType)?.label;
+            const engineLabel = ALL_ENGINES.find(o => o.id === q.engine)?.label ?? q.engine;
+            const frontAxleLabel = ALL_FRONT_AXLES.find(o => o.id === q.frontAxle)?.label ?? q.frontAxle;
+            const rearAxleLabel = ALL_REAR_AXLES.find(o => o.id === q.rearAxle)?.label ?? q.rearAxle;
+            const axleLabel = frontAxleLabel && rearAxleLabel
+              ? `${frontAxleLabel} / ${rearAxleLabel}`
+              : (frontAxleLabel || rearAxleLabel);
             const linkedName = requestName(q.requestId);
             return (
               <div key={q.id} className="vipr-card" data-testid={`card-quote-${q.id}`}>
@@ -363,6 +404,20 @@ export default function PreviouslyQuoted() {
                     {apparatusLabel && (
                       <div style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
                         {apparatusLabel}
+                      </div>
+                    )}
+                    {engineLabel && (
+                      <div className="flex items-center gap-1" data-testid={`text-quote-engine-${q.id}`}
+                        style={{ gridColumn: "1 / -1", fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`Engine: ${engineLabel}`}>
+                        <Cog size={9} style={{ flexShrink: 0 }} /> {engineLabel}
+                      </div>
+                    )}
+                    {axleLabel && (
+                      <div className="flex items-center gap-1" data-testid={`text-quote-axles-${q.id}`}
+                        style={{ gridColumn: "1 / -1", fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`Axles (front / rear): ${axleLabel}`}>
+                        <Gauge size={9} style={{ flexShrink: 0 }} /> {axleLabel}
                       </div>
                     )}
                     {q.quotedPrice && (
