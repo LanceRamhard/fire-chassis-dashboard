@@ -4,6 +4,7 @@ import { API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion, Link2,
+  Cog, Gauge, ArrowUp, ArrowDown,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -13,7 +14,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { QuoteWithFiles, ChassisRequest, ChassisConfig } from "@shared/schema";
-import { MANUFACTURERS, APPARATUS_TYPES } from "@/lib/chassis-data";
+import { MANUFACTURERS, APPARATUS_TYPES, ALL_CABS, ALL_ENGINES, ALL_FRONT_AXLES, ALL_REAR_AXLES } from "@/lib/chassis-data";
 import { format } from "date-fns";
 
 // Resolve a request's truck-model id (e.g. "m2_106") to its label ("M2 106").
@@ -30,6 +31,70 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ─── Sorting ──────────────────────────────────────────────────────────────────
+type SortKey =
+  | "added" | "quoteDate" | "price" | "title" | "model"
+  | "manufacturer" | "cab" | "engine" | "frontAxle" | "rearAxle";
+
+const SORT_OPTIONS: { id: SortKey; label: string }[] = [
+  { id: "added",        label: "Date Added" },
+  { id: "quoteDate",    label: "Quote Date" },
+  { id: "price",        label: "Price" },
+  { id: "title",        label: "Title" },
+  { id: "model",        label: "Model" },
+  { id: "manufacturer", label: "Manufacturer" },
+  { id: "cab",          label: "Cab Type" },
+  { id: "engine",       label: "Engine" },
+  { id: "frontAxle",    label: "Front Axle" },
+  { id: "rearAxle",     label: "Rear Axle" },
+];
+
+// Parse the numeric portion of a value (price, axle weight) — "$187,450" → 187450,
+// "14,600 Lbs" → 14600. Returns null when there's nothing to compare.
+function numericOf(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const n = parseInt(s.replace(/[^0-9]/g, ""), 10);
+  return Number.isNaN(n) ? null : n;
+}
+
+// The axle id (e.g. "14.6k") maps to a label whose number is the rating, so sort
+// by that weight rather than the id/label string.
+function axleWeight(list: { id: string; label: string }[], id: string | null): number | null {
+  return numericOf(list.find(o => o.id === id)?.label);
+}
+
+// Comparable value for a quote under the chosen sort key. Numbers sort numerically,
+// strings case-insensitively; null means "no value" and always sorts last.
+function sortValue(q: QuoteWithFiles, key: SortKey): number | string | null {
+  switch (key) {
+    case "added":        return new Date(q.createdAt).getTime();
+    case "quoteDate":    return q.quoteDate ? new Date(`${q.quoteDate}T00:00:00`).getTime() : null;
+    case "price":        return numericOf(q.quotedPrice);
+    case "title":        return q.title.toLowerCase() || null;
+    case "model":        return q.truckModel?.toLowerCase() || null;
+    case "manufacturer": return (MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer).toLowerCase() || null;
+    case "cab":          return ALL_CABS.find(o => o.id === q.cabConfig)?.label.toLowerCase() ?? null;
+    case "engine":       return ALL_ENGINES.find(o => o.id === q.engine)?.label.toLowerCase() ?? null;
+    case "frontAxle":    return axleWeight(ALL_FRONT_AXLES, q.frontAxle);
+    case "rearAxle":     return axleWeight(ALL_REAR_AXLES, q.rearAxle);
+  }
+}
+
+function sortQuotes(list: QuoteWithFiles[], key: SortKey, dir: "asc" | "desc"): QuoteWithFiles[] {
+  return [...list].sort((a, b) => {
+    const av = sortValue(a, key);
+    const bv = sortValue(b, key);
+    // Quotes missing the sorted field sink to the bottom regardless of direction.
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    const cmp = typeof av === "number" && typeof bv === "number"
+      ? av - bv
+      : String(av).localeCompare(String(bv));
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
 // ─── Upload dialog ────────────────────────────────────────────────────────────
 export function UploadQuoteDialog(
   { presetRequestId, trigger }: { presetRequestId?: number; trigger?: React.ReactNode } = {}
@@ -41,6 +106,10 @@ export function UploadQuoteDialog(
   const [manufacturer, setManufacturer] = useState("");
   const [truckModel, setTruckModel] = useState("");
   const [apparatusType, setApparatusType] = useState("");
+  const [cabConfig, setCabConfig] = useState("");
+  const [engine, setEngine] = useState("");
+  const [frontAxle, setFrontAxle] = useState("");
+  const [rearAxle, setRearAxle] = useState("");
   const [quotedPrice, setQuotedPrice] = useState("");
   const [quoteDate, setQuoteDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -53,6 +122,7 @@ export function UploadQuoteDialog(
   const reset = () => {
     setRequestId(presetRequestId ? String(presetRequestId) : "");
     setTitle(""); setManufacturer(""); setTruckModel(""); setApparatusType("");
+    setCabConfig(""); setEngine(""); setFrontAxle(""); setRearAxle("");
     setQuotedPrice(""); setQuoteDate(""); setNotes(""); setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -68,6 +138,10 @@ export function UploadQuoteDialog(
     setManufacturer(req.manufacturer);
     setTruckModel(modelLabelFor(req, configs));
     if (fd?.apparatusType) setApparatusType(fd.apparatusType);
+    if (fd?.cabConfig)     setCabConfig(fd.cabConfig);
+    if (fd?.engine)        setEngine(fd.engine);
+    if (fd?.frontAxle)     setFrontAxle(fd.frontAxle);
+    if (fd?.rearAxle)      setRearAxle(fd.rearAxle);
   };
 
   const uploadMutation = useMutation({
@@ -78,6 +152,10 @@ export function UploadQuoteDialog(
       fd.append("manufacturer", manufacturer);
       if (truckModel.trim())  fd.append("truckModel", truckModel.trim());
       if (apparatusType)      fd.append("apparatusType", apparatusType);
+      if (cabConfig)          fd.append("cabConfig", cabConfig);
+      if (engine)             fd.append("engine", engine);
+      if (frontAxle)          fd.append("frontAxle", frontAxle);
+      if (rearAxle)           fd.append("rearAxle", rearAxle);
       if (quotedPrice.trim()) fd.append("quotedPrice", quotedPrice.trim());
       if (quoteDate)          fd.append("quoteDate", quoteDate);
       if (notes.trim())       fd.append("notes", notes.trim());
@@ -179,6 +257,38 @@ export function UploadQuoteDialog(
             </select>
           </div>
           <div>
+            <div className="vipr-field-label">Cab Config</div>
+            <select className="vipr-input" value={cabConfig} onChange={e => setCabConfig(e.target.value)}
+              data-testid="select-quote-cab">
+              <option value="">Select…</option>
+              {ALL_CABS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="vipr-field-label">Engine</div>
+            <select className="vipr-input" value={engine} onChange={e => setEngine(e.target.value)}
+              data-testid="select-quote-engine">
+              <option value="">Select…</option>
+              {ALL_ENGINES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="vipr-field-label">Front Axle</div>
+            <select className="vipr-input" value={frontAxle} onChange={e => setFrontAxle(e.target.value)}
+              data-testid="select-quote-front-axle">
+              <option value="">Select…</option>
+              {ALL_FRONT_AXLES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="vipr-field-label">Rear Axle</div>
+            <select className="vipr-input" value={rearAxle} onChange={e => setRearAxle(e.target.value)}
+              data-testid="select-quote-rear-axle">
+              <option value="">Select…</option>
+              {ALL_REAR_AXLES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
             <div className="vipr-field-label">Quoted Price</div>
             <input className="vipr-input" value={quotedPrice} onChange={e => setQuotedPrice(e.target.value)}
               placeholder="e.g. $187,450" data-testid="input-quote-price" />
@@ -236,6 +346,8 @@ export default function PreviouslyQuoted() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [mfrFilter, setMfrFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("added");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const { data: quotes = [], isLoading } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
   const { data: requests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
@@ -264,6 +376,8 @@ export default function PreviouslyQuoted() {
     return matchSearch && matchMfr;
   });
 
+  const sorted = sortQuotes(filtered, sortKey, sortDir);
+
   return (
     <div className="space-y-4">
       {/* Toolbar: search, manufacturer filter, upload */}
@@ -290,7 +404,28 @@ export default function PreviouslyQuoted() {
             </button>
           ))}
         </div>
-        <div className="ml-auto">
+        <div className="flex items-center gap-1 ml-auto">
+          <span style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>Sort</span>
+          <select
+            className="vipr-input"
+            style={{ width: "auto", paddingRight: "24px" }}
+            value={sortKey}
+            onChange={e => setSortKey(e.target.value as SortKey)}
+            data-testid="select-sort-quotes"
+          >
+            {SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+          <button
+            className="vipr-btn-ghost"
+            style={{ padding: "5px 7px" }}
+            onClick={() => setSortDir(d => (d === "asc" ? "desc" : "asc"))}
+            title={sortDir === "asc" ? "Ascending" : "Descending"}
+            data-testid="button-sort-direction"
+          >
+            {sortDir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+          </button>
+        </div>
+        <div>
           <UploadQuoteDialog />
         </div>
       </div>
@@ -312,9 +447,16 @@ export default function PreviouslyQuoted() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {filtered.map(q => {
+          {sorted.map(q => {
             const mfrLabel = MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer;
             const apparatusLabel = APPARATUS_TYPES.find(t => t.id === q.apparatusType)?.label;
+            const cabLabel = ALL_CABS.find(o => o.id === q.cabConfig)?.label ?? q.cabConfig;
+            const engineLabel = ALL_ENGINES.find(o => o.id === q.engine)?.label ?? q.engine;
+            const frontAxleLabel = ALL_FRONT_AXLES.find(o => o.id === q.frontAxle)?.label ?? q.frontAxle;
+            const rearAxleLabel = ALL_REAR_AXLES.find(o => o.id === q.rearAxle)?.label ?? q.rearAxle;
+            const axleLabel = frontAxleLabel && rearAxleLabel
+              ? `${frontAxleLabel} / ${rearAxleLabel}`
+              : (frontAxleLabel || rearAxleLabel);
             const linkedName = requestName(q.requestId);
             return (
               <div key={q.id} className="vipr-card" data-testid={`card-quote-${q.id}`}>
@@ -363,6 +505,27 @@ export default function PreviouslyQuoted() {
                     {apparatusLabel && (
                       <div style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
                         {apparatusLabel}
+                      </div>
+                    )}
+                    {cabLabel && (
+                      <div data-testid={`text-quote-cab-${q.id}`}
+                        style={{ fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`Cab: ${cabLabel}`}>
+                        {cabLabel}
+                      </div>
+                    )}
+                    {engineLabel && (
+                      <div className="flex items-center gap-1" data-testid={`text-quote-engine-${q.id}`}
+                        style={{ gridColumn: "1 / -1", fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`Engine: ${engineLabel}`}>
+                        <Cog size={9} style={{ flexShrink: 0 }} /> {engineLabel}
+                      </div>
+                    )}
+                    {axleLabel && (
+                      <div className="flex items-center gap-1" data-testid={`text-quote-axles-${q.id}`}
+                        style={{ gridColumn: "1 / -1", fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`Axles (front / rear): ${axleLabel}`}>
+                        <Gauge size={9} style={{ flexShrink: 0 }} /> {axleLabel}
                       </div>
                     )}
                     {q.quotedPrice && (

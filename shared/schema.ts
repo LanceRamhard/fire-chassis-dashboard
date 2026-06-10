@@ -109,6 +109,10 @@ export const quotes = sqliteTable("quotes", {
   manufacturer:  text("manufacturer").notNull(),
   truckModel:    text("truck_model"),
   apparatusType: text("apparatus_type"),
+  cabConfig:     text("cab_config"),                  // option id, e.g. "crew"
+  engine:        text("engine"),                      // option id, e.g. "l9"
+  frontAxle:     text("front_axle"),                  // option id, e.g. "14.6k"
+  rearAxle:      text("rear_axle"),                   // option id, e.g. "24k"
   quotedPrice:   text("quoted_price"),
   quoteDate:     text("quote_date"),                  // ISO date string (YYYY-MM-DD)
   notes:         text("notes"),
