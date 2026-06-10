@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion,
+  Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion, Link2,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -12,9 +12,17 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { QuoteWithFiles } from "@shared/schema";
+import type { QuoteWithFiles, ChassisRequest, ChassisConfig } from "@shared/schema";
 import { MANUFACTURERS, APPARATUS_TYPES } from "@/lib/chassis-data";
 import { format } from "date-fns";
+
+// Resolve a request's truck-model id (e.g. "m2_106") to its label ("M2 106").
+function modelLabelFor(req: ChassisRequest, configs: ChassisConfig[]): string {
+  const fd = req.formData as any;
+  if (!fd?.truckModel) return "";
+  return configs.find(c => c.manufacturer === req.manufacturer && c.modelId === fd.truckModel)?.modelLabel
+    ?? fd.truckModel;
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -23,9 +31,12 @@ function formatFileSize(bytes: number): string {
 }
 
 // ─── Upload dialog ────────────────────────────────────────────────────────────
-function UploadQuoteDialog() {
+export function UploadQuoteDialog(
+  { presetRequestId, trigger }: { presetRequestId?: number; trigger?: React.ReactNode } = {}
+) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [requestId, setRequestId] = useState("");
   const [title, setTitle] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [truckModel, setTruckModel] = useState("");
@@ -36,15 +47,33 @@ function UploadQuoteDialog() {
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { data: requests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
+  const { data: configs = [] } = useQuery<ChassisConfig[]>({ queryKey: ["/api/configs"] });
+
   const reset = () => {
+    setRequestId(presetRequestId ? String(presetRequestId) : "");
     setTitle(""); setManufacturer(""); setTruckModel(""); setApparatusType("");
     setQuotedPrice(""); setQuoteDate(""); setNotes(""); setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // Pull manufacturer / model / apparatus from a saved request so the user
+  // doesn't have to re-enter what the request already captured.
+  const linkToRequest = (id: string) => {
+    setRequestId(id);
+    const req = requests.find(r => String(r.id) === id);
+    if (!req) return;
+    const fd = req.formData as any;
+    setTitle(t => t || req.configName);
+    setManufacturer(req.manufacturer);
+    setTruckModel(modelLabelFor(req, configs));
+    if (fd?.apparatusType) setApparatusType(fd.apparatusType);
+  };
+
   const uploadMutation = useMutation({
     mutationFn: async () => {
       const fd = new FormData();
+      if (requestId)          fd.append("requestId", requestId);
       fd.append("title", title.trim());
       fd.append("manufacturer", manufacturer);
       if (truckModel.trim())  fd.append("truckModel", truckModel.trim());
@@ -70,17 +99,30 @@ function UploadQuoteDialog() {
 
   const canSubmit = title.trim() && manufacturer && files.length > 0 && !uploadMutation.isPending;
 
+  // Reset on close; prefill from the preset request on open.
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      reset();
+      if (presetRequestId) linkToRequest(String(presetRequestId));
+    }
+    setOpen(next);
+  };
+
+  const linkedReq = requests.find(r => String(r.id) === requestId);
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <button className="vipr-btn-primary" data-testid="button-upload-quote">
-          <Upload size={12} /> Upload Quote
-        </button>
+        {trigger ?? (
+          <button className="vipr-btn-primary" data-testid="button-upload-quote">
+            <Upload size={12} /> Upload Quote
+          </button>
+        )}
       </DialogTrigger>
       <DialogContent style={{ background: "var(--vipr-surface-2)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text)", maxWidth: "560px", maxHeight: "88vh", overflowY: "auto" }}>
         <DialogHeader>
           <DialogTitle style={{ color: "var(--vipr-text)", fontSize: "14px" }}>
-            Upload Received Quote
+            {presetRequestId ? "Attach Documents to Request" : "Upload Received Quote"}
           </DialogTitle>
           <DialogDescription style={{ color: "var(--vipr-text-muted)", fontSize: "11px" }}>
             Attach the quote and spec documents received from the manufacturer so others can reference them for similar trucks.
@@ -88,6 +130,28 @@ function UploadQuoteDialog() {
         </DialogHeader>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          {/* Link to a saved request — pre-fills metadata so it isn't re-entered */}
+          {presetRequestId ? (
+            linkedReq && (
+              <div style={{ gridColumn: "1 / -1" }} className="flex items-center gap-1.5"
+                data-testid="text-linked-request">
+                <Link2 size={11} style={{ color: "var(--vipr-orange)" }} />
+                <span style={{ fontSize: "11px", color: "var(--vipr-text-muted)" }}>
+                  Linking to <strong style={{ color: "var(--vipr-text)" }}>{linkedReq.configName}</strong>
+                </span>
+              </div>
+            )
+          ) : (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div className="vipr-field-label">Link to Saved Request (optional)</div>
+              <select className="vipr-input" value={requestId}
+                onChange={e => linkToRequest(e.target.value)}
+                data-testid="select-quote-request">
+                <option value="">None — standalone quote</option>
+                {requests.map(r => <option key={r.id} value={r.id}>{r.configName}</option>)}
+              </select>
+            </div>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
             <div className="vipr-field-label">Title *</div>
             <input className="vipr-input" value={title} onChange={e => setTitle(e.target.value)}
@@ -174,6 +238,9 @@ export default function PreviouslyQuoted() {
   const [mfrFilter, setMfrFilter] = useState("all");
 
   const { data: quotes = [], isLoading } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
+  const { data: requests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
+  const requestName = (id: number | null) =>
+    id == null ? undefined : requests.find(r => r.id === id)?.configName;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -248,6 +315,7 @@ export default function PreviouslyQuoted() {
           {filtered.map(q => {
             const mfrLabel = MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer;
             const apparatusLabel = APPARATUS_TYPES.find(t => t.id === q.apparatusType)?.label;
+            const linkedName = requestName(q.requestId);
             return (
               <div key={q.id} className="vipr-card" data-testid={`card-quote-${q.id}`}>
                 {/* Card header */}
@@ -279,6 +347,13 @@ export default function PreviouslyQuoted() {
 
                 {/* Card body */}
                 <div style={{ padding: "8px 10px" }}>
+                  {linkedName && (
+                    <div className="flex items-center gap-1" data-testid={`link-quote-request-${q.id}`}
+                      style={{ fontSize: "10px", color: "var(--vipr-orange)", marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      title={`Linked to saved request: ${linkedName}`}>
+                      <Link2 size={9} style={{ flexShrink: 0 }} /> {linkedName}
+                    </div>
+                  )}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px", marginBottom: "8px" }}>
                     {q.truckModel && (
                       <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>

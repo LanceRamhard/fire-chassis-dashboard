@@ -140,6 +140,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── Previously Quoted (uploaded quotes & spec sheets) ─────────────────────
   const quoteMetaSchema = z.object({
+    requestId:     z.coerce.number().int().positive().optional(), // link to a saved request
     title:         z.string().min(1),
     manufacturer:  z.string().min(1),
     truckModel:    z.string().optional(),
