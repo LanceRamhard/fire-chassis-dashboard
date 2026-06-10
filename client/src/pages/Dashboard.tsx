@@ -122,7 +122,7 @@ export default function Dashboard() {
       <main className="flex-1 overflow-auto">
         <div className="p-4">
           {activeTab === "request" && <RequestForm />}
-          {activeTab === "history" && <SavedRequests onLoad={() => setActiveTab("request")} />}
+          {activeTab === "history" && <SavedRequests onLoad={() => setActiveTab("request")} onUploadQuote={() => setActiveTab("quoted")} />}
           {activeTab === "quoted"  && <PreviouslyQuoted />}
           {activeTab === "admin"   && <ConfigAdmin />}
         </div>

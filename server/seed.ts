@@ -52,17 +52,18 @@ export function createTables() {
     );
 
     CREATE TABLE IF NOT EXISTS quotes (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      title          TEXT    NOT NULL,
-      manufacturer   TEXT    NOT NULL,
-      truck_model    TEXT,
-      apparatus_type TEXT,
-      quoted_price   TEXT,
-      quote_date     TEXT,
-      notes          TEXT,
-      uploaded_by    TEXT,
-      created_at     INTEGER NOT NULL,
-      updated_at     INTEGER NOT NULL
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      title              TEXT    NOT NULL,
+      manufacturer       TEXT    NOT NULL,
+      truck_model        TEXT,
+      apparatus_type     TEXT,
+      quoted_price       TEXT,
+      quote_date         TEXT,
+      notes              TEXT,
+      uploaded_by        TEXT,
+      chassis_request_id INTEGER REFERENCES chassis_requests(id) ON DELETE SET NULL,
+      created_at         INTEGER NOT NULL,
+      updated_at         INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS quote_files (
@@ -75,6 +76,17 @@ export function createTables() {
       created_at    INTEGER NOT NULL
     );
   `);
+
+  // Idempotent migration: quotes tables created before request-linking lack the
+  // chassis_request_id column.
+  const quoteCols = sqlite.prepare(`PRAGMA table_info(quotes)`).all() as { name: string }[];
+  if (!quoteCols.some(c => c.name === "chassis_request_id")) {
+    sqlite.exec(`
+      ALTER TABLE quotes ADD COLUMN chassis_request_id INTEGER
+        REFERENCES chassis_requests(id) ON DELETE SET NULL;
+    `);
+    console.log("[seed] Added quotes.chassis_request_id column.");
+  }
 
   // Idempotent migration for pre-existing DBs: the legacy table stored a single
   // if_field/operator/if_value condition per rule. Rebuild it with the new

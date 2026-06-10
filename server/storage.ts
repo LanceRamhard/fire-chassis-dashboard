@@ -298,6 +298,7 @@ export class DatabaseStorage implements IStorage {
       quoteDate:     quote.quoteDate ?? null,
       notes:         quote.notes ?? null,
       uploadedBy:    quote.uploadedBy ?? null,
+      chassisRequestId: quote.chassisRequestId ?? null,
       createdAt:     now,
       updatedAt:     now,
     }).returning().get();
@@ -315,7 +316,8 @@ export class DatabaseStorage implements IStorage {
     if (quote.apparatusType !== undefined) updates.apparatusType = quote.apparatusType;
     if (quote.quotedPrice   !== undefined) updates.quotedPrice   = quote.quotedPrice;
     if (quote.quoteDate     !== undefined) updates.quoteDate     = quote.quoteDate;
-    if (quote.notes         !== undefined) updates.notes         = quote.notes;
+    if (quote.notes            !== undefined) updates.notes            = quote.notes;
+    if (quote.chassisRequestId !== undefined) updates.chassisRequestId = quote.chassisRequestId;
     const row = db.update(quotes).set(updates).where(eq(quotes.id, id)).returning().get();
     return row ? this.withFiles(row) : undefined;
   }

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { FolderOpen, Trash2, Search, Clock, Truck, Calendar } from "lucide-react";
+import { FolderOpen, Trash2, Search, Clock, Truck, Calendar, Upload } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -10,9 +10,10 @@ import {
 import type { ChassisRequest } from "@shared/schema";
 import { MANUFACTURERS } from "@/lib/chassis-data";
 import { scheduleFormLoad } from "./RequestForm";
+import { scheduleQuoteUpload } from "./PreviouslyQuoted";
 import { format } from "date-fns";
 
-export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
+export default function SavedRequests({ onLoad, onUploadQuote }: { onLoad: () => void; onUploadQuote: () => void }) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [mfrFilter, setMfrFilter] = useState("all");
@@ -32,6 +33,13 @@ export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
     scheduleFormLoad(req.formData as any, req.id);
     toast({ title: "Loaded", description: `"${req.configName}" loaded.` });
     onLoad(); // switches tab → RequestForm mounts → reads pendingLoad
+  };
+
+  const handleUploadQuote = (req: ChassisRequest) => {
+    // Same pending-slot pattern: PreviouslyQuoted reads this on mount and opens
+    // the upload dialog pre-linked to this request
+    scheduleQuoteUpload(req.id);
+    onUploadQuote();
   };
 
   const filtered = requests.filter(r => {
@@ -155,6 +163,15 @@ export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
                       data-testid={`button-load-${req.id}`}
                     >
                       <FolderOpen size={11} /> Load
+                    </button>
+                    <button
+                      className="vipr-btn-ghost"
+                      style={{ padding: "5px 8px" }}
+                      onClick={() => handleUploadQuote(req)}
+                      title="Upload received quote for this request"
+                      data-testid={`button-upload-quote-${req.id}`}
+                    >
+                      <Upload size={11} />
                     </button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>

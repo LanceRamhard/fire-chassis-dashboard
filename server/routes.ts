@@ -139,16 +139,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Previously Quoted (uploaded quotes & spec sheets) ─────────────────────
+  // Arrives as a string from multipart forms, a number (or null = unlink) from JSON
+  const chassisRequestIdSchema = z.preprocess(
+    v => (v === undefined || v === null || v === "" ? (v === undefined ? undefined : null) : Number(v)),
+    z.number().int().positive().nullable().optional(),
+  );
+
   const quoteMetaSchema = z.object({
-    title:         z.string().min(1),
-    manufacturer:  z.string().min(1),
-    truckModel:    z.string().optional(),
-    apparatusType: z.string().optional(),
-    quotedPrice:   z.string().optional(),
-    quoteDate:     z.string().optional(),
-    notes:         z.string().optional(),
-    uploadedBy:    z.string().optional(),
+    title:            z.string().min(1),
+    manufacturer:     z.string().min(1),
+    truckModel:       z.string().optional(),
+    apparatusType:    z.string().optional(),
+    quotedPrice:      z.string().optional(),
+    quoteDate:        z.string().optional(),
+    notes:            z.string().optional(),
+    uploadedBy:       z.string().optional(),
+    chassisRequestId: chassisRequestIdSchema,
   });
+
+  // Linking to a request that doesn't exist should be a 400, not an FK error
+  const linkedRequestMissing = async (id: number | null | undefined) =>
+    typeof id === "number" && !(await storage.getChassisRequest(id));
 
   const uploadedFiles = (req: { files?: unknown }) =>
     ((req.files as Express.Multer.File[] | undefined) ?? []).map(f => ({
@@ -179,12 +190,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (files.length === 0) {
       return res.status(400).json({ message: "At least one file is required" });
     }
+    if (await linkedRequestMissing(parsed.data.chassisRequestId)) {
+      files.forEach(f => deleteStoredFile(f.fileName));
+      return res.status(400).json({ message: "Linked saved request not found" });
+    }
     res.json(await storage.createQuote(parsed.data, files));
   });
 
   app.patch("/api/quotes/:id", async (req, res) => {
     const parsed = quoteMetaSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    if (await linkedRequestMissing(parsed.data.chassisRequestId)) {
+      return res.status(400).json({ message: "Linked saved request not found" });
+    }
     const updated = await storage.updateQuote(Number(req.params.id), parsed.data);
     if (!updated) return res.status(404).json({ message: "Not found" });
     res.json(updated);

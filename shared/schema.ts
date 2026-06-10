@@ -100,17 +100,19 @@ export type DependencyRule = typeof dependencyRules.$inferSelect;
 // with searchable metadata so users can find prior quotes for similar trucks.
 // uploadedBy is free text for now; it becomes a user reference once logins land.
 export const quotes = sqliteTable("quotes", {
-  id:            integer("id").primaryKey({ autoIncrement: true }),
-  title:         text("title").notNull(),
-  manufacturer:  text("manufacturer").notNull(),
-  truckModel:    text("truck_model"),
-  apparatusType: text("apparatus_type"),
-  quotedPrice:   text("quoted_price"),
-  quoteDate:     text("quote_date"),                  // ISO date string (YYYY-MM-DD)
-  notes:         text("notes"),
-  uploadedBy:    text("uploaded_by"),
-  createdAt:     integer("created_at", { mode: "timestamp" }).notNull(),
-  updatedAt:     integer("updated_at", { mode: "timestamp" }).notNull(),
+  id:               integer("id").primaryKey({ autoIncrement: true }),
+  title:            text("title").notNull(),
+  manufacturer:     text("manufacturer").notNull(),
+  truckModel:       text("truck_model"),
+  apparatusType:    text("apparatus_type"),
+  quotedPrice:      text("quoted_price"),
+  quoteDate:        text("quote_date"),               // ISO date string (YYYY-MM-DD)
+  notes:            text("notes"),
+  uploadedBy:       text("uploaded_by"),
+  // Optional link back to the saved request this quote answers; unlinks on delete
+  chassisRequestId: integer("chassis_request_id").references(() => chassisRequests.id, { onDelete: "set null" }),
+  createdAt:        integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt:        integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
 export const insertQuoteSchema = createInsertSchema(quotes).omit({

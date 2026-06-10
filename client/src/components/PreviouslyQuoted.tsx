@@ -1,9 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion,
+  Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion, Link2,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -12,9 +12,17 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { QuoteWithFiles } from "@shared/schema";
+import type { ChassisRequest, QuoteWithFiles } from "@shared/schema";
 import { MANUFACTURERS, APPARATUS_TYPES } from "@/lib/chassis-data";
 import { format } from "date-fns";
+
+// Module-level pending slot, mirroring scheduleFormLoad in RequestForm: written
+// by SavedRequests BEFORE the tab switch mounts this component, so the upload
+// dialog opens pre-linked to that saved request.
+let pendingLinkRequestId: number | null = null;
+export function scheduleQuoteUpload(requestId: number) {
+  pendingLinkRequestId = requestId;
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -23,9 +31,9 @@ function formatFileSize(bytes: number): string {
 }
 
 // ─── Upload dialog ────────────────────────────────────────────────────────────
-function UploadQuoteDialog() {
+function UploadQuoteDialog({ initialLinkId = null }: { initialLinkId?: number | null }) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialLinkId !== null);
   const [title, setTitle] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [truckModel, setTruckModel] = useState("");
@@ -33,14 +41,37 @@ function UploadQuoteDialog() {
   const [quotedPrice, setQuotedPrice] = useState("");
   const [quoteDate, setQuoteDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [linkRequestId, setLinkRequestId] = useState<string>(initialLinkId !== null ? String(initialLinkId) : "");
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { data: savedRequests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
+
   const reset = () => {
     setTitle(""); setManufacturer(""); setTruckModel(""); setApparatusType("");
-    setQuotedPrice(""); setQuoteDate(""); setNotes(""); setFiles([]);
+    setQuotedPrice(""); setQuoteDate(""); setNotes(""); setLinkRequestId(""); setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
+
+  // Selecting a saved request fills in any truck details left blank
+  const prefillFromRequest = (req: ChassisRequest | undefined) => {
+    if (!req) return;
+    const fd = req.formData as any;
+    if (!title.trim())     setTitle(req.configName);
+    if (!manufacturer)     setManufacturer(req.manufacturer);
+    if (!truckModel.trim() && fd?.truckModel)    setTruckModel(String(fd.truckModel));
+    if (!apparatusType     && fd?.apparatusType) setApparatusType(String(fd.apparatusType));
+  };
+
+  // Apply prefill for a dialog opened from a Saved Requests card once data arrives
+  const initialReq = initialLinkId !== null ? savedRequests.find(r => r.id === initialLinkId) : undefined;
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (initialReq && !prefilledRef.current && open) {
+      prefilledRef.current = true;
+      prefillFromRequest(initialReq);
+    }
+  }, [initialReq, open]);
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -52,6 +83,7 @@ function UploadQuoteDialog() {
       if (quotedPrice.trim()) fd.append("quotedPrice", quotedPrice.trim());
       if (quoteDate)          fd.append("quoteDate", quoteDate);
       if (notes.trim())       fd.append("notes", notes.trim());
+      if (linkRequestId)      fd.append("chassisRequestId", linkRequestId);
       files.forEach(f => fd.append("files", f));
       const res = await fetch(`${API_BASE}/api/quotes`, { method: "POST", body: fd });
       if (!res.ok) throw new Error((await res.text()) || res.statusText);
@@ -88,6 +120,25 @@ function UploadQuoteDialog() {
         </DialogHeader>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div className="vipr-field-label">Link to Saved Request (optional)</div>
+            <select
+              className="vipr-input"
+              value={linkRequestId}
+              onChange={e => {
+                setLinkRequestId(e.target.value);
+                prefillFromRequest(savedRequests.find(r => String(r.id) === e.target.value));
+              }}
+              data-testid="select-quote-request"
+            >
+              <option value="">Not linked</option>
+              {savedRequests.map(r => (
+                <option key={r.id} value={r.id}>
+                  {r.configName} — {MANUFACTURERS.find(m => m.id === r.manufacturer)?.label ?? r.manufacturer}
+                </option>
+              ))}
+            </select>
+          </div>
           <div style={{ gridColumn: "1 / -1" }}>
             <div className="vipr-field-label">Title *</div>
             <input className="vipr-input" value={title} onChange={e => setTitle(e.target.value)}
@@ -173,7 +224,16 @@ export default function PreviouslyQuoted() {
   const [search, setSearch] = useState("");
   const [mfrFilter, setMfrFilter] = useState("all");
 
+  // Consume the pending link slot once on mount (set by SavedRequests pre-tab-switch)
+  const [initialLinkId] = useState<number | null>(() => {
+    const id = pendingLinkRequestId;
+    pendingLinkRequestId = null;
+    return id;
+  });
+
   const { data: quotes = [], isLoading } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
+  const { data: savedRequests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
+  const requestNames = new Map(savedRequests.map(r => [r.id, r.configName]));
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -192,6 +252,7 @@ export default function PreviouslyQuoted() {
       q.title.toLowerCase().includes(s) ||
       (q.truckModel ?? "").toLowerCase().includes(s) ||
       (q.notes ?? "").toLowerCase().includes(s) ||
+      (q.chassisRequestId != null && (requestNames.get(q.chassisRequestId) ?? "").toLowerCase().includes(s)) ||
       q.files.some(f => f.originalName.toLowerCase().includes(s));
     const matchMfr = mfrFilter === "all" || q.manufacturer === mfrFilter;
     return matchSearch && matchMfr;
@@ -224,7 +285,7 @@ export default function PreviouslyQuoted() {
           ))}
         </div>
         <div className="ml-auto">
-          <UploadQuoteDialog />
+          <UploadQuoteDialog initialLinkId={initialLinkId} />
         </div>
       </div>
 
@@ -301,6 +362,16 @@ export default function PreviouslyQuoted() {
                       </div>
                     )}
                   </div>
+
+                  {q.chassisRequestId != null && (
+                    <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-muted)", marginBottom: "8px" }}
+                      data-testid={`linked-request-${q.id}`}>
+                      <Link2 size={9} style={{ color: "var(--vipr-orange)", flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {requestNames.get(q.chassisRequestId) ?? "Saved request (deleted)"}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Attached documents */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: "8px" }}>
