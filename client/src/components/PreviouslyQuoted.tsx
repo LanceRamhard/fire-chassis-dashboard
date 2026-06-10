@@ -4,7 +4,7 @@ import { API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion, Link2,
-  Cog, Gauge, ArrowUp, ArrowDown,
+  Cog, Gauge, ArrowUp, ArrowDown, SlidersHorizontal, X,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -93,6 +93,58 @@ function sortQuotes(list: QuoteWithFiles[], key: SortKey, dir: "asc" | "desc"): 
       : String(av).localeCompare(String(bv));
     return dir === "asc" ? cmp : -cmp;
   });
+}
+
+// ─── Filtering ──────────────────────────────────────────────────────────────
+// The component-style filters and how each picks its value off a quote.
+type SpecFilterKey = "model" | "cab" | "engine" | "frontAxle" | "rearAxle";
+
+const SPEC_FILTERS: { key: SpecFilterKey; label: string; pick: (q: QuoteWithFiles) => string | null }[] = [
+  { key: "model",     label: "Model",      pick: q => q.truckModel },
+  { key: "cab",       label: "Cab",        pick: q => q.cabConfig },
+  { key: "engine",    label: "Engine",     pick: q => q.engine },
+  { key: "frontAxle", label: "Front Axle", pick: q => q.frontAxle },
+  { key: "rearAxle",  label: "Rear Axle",  pick: q => q.rearAxle },
+];
+
+type SpecFilters = Record<SpecFilterKey, string>;
+const NO_SPEC_FILTERS: SpecFilters = { model: "all", cab: "all", engine: "all", frontAxle: "all", rearAxle: "all" };
+
+// The selectable values for a spec filter, drawn only from values that actually
+// appear in the supplied quotes so the dropdowns never offer empty results.
+// Option-id fields (cab/engine/axles) map through their master tables for labels
+// and ordering; truckModel is free text, so distinct values are sorted as-is.
+function specFilterOptions(quotes: QuoteWithFiles[], key: SpecFilterKey): { id: string; label: string }[] {
+  const pick = SPEC_FILTERS.find(f => f.key === key)!.pick;
+  const present = new Set(quotes.map(pick).filter((v): v is string => !!v));
+  if (key === "model") {
+    return Array.from(present).sort((a, b) => a.localeCompare(b)).map(v => ({ id: v, label: v.toUpperCase() }));
+  }
+  const list: Record<Exclude<SpecFilterKey, "model">, { id: string; label: string }[]> = {
+    cab: ALL_CABS as any, engine: ALL_ENGINES as any,
+    frontAxle: ALL_FRONT_AXLES as any, rearAxle: ALL_REAR_AXLES as any,
+  };
+  return list[key as Exclude<SpecFilterKey, "model">].filter(o => present.has(o.id))
+    .map(o => ({ id: o.id, label: o.label }));
+}
+
+function FilterSelect(
+  { label, value, options, onChange, testId }:
+  { label: string; value: string; options: { id: string; label: string }[]; onChange: (v: string) => void; testId: string }
+) {
+  const active = value !== "all";
+  return (
+    <select
+      className="vipr-input"
+      style={{ width: "auto", paddingRight: "24px", borderColor: active ? "var(--vipr-orange)" : undefined, color: active ? "var(--vipr-text)" : "var(--vipr-text-muted)" }}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      data-testid={testId}
+    >
+      <option value="all">{label}: All</option>
+      {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
+  );
 }
 
 // ─── Upload dialog ────────────────────────────────────────────────────────────
@@ -346,8 +398,14 @@ export default function PreviouslyQuoted() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [mfrFilter, setMfrFilter] = useState("all");
+  const [specFilters, setSpecFilters] = useState<SpecFilters>(NO_SPEC_FILTERS);
   const [sortKey, setSortKey] = useState<SortKey>("added");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const setSpecFilter = (key: SpecFilterKey, value: string) =>
+    setSpecFilters(prev => ({ ...prev, [key]: value }));
+  const clearSpecFilters = () => setSpecFilters(NO_SPEC_FILTERS);
+  const activeSpecCount = SPEC_FILTERS.filter(f => specFilters[f.key] !== "all").length;
 
   const { data: quotes = [], isLoading } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
   const { data: requests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
@@ -365,6 +423,10 @@ export default function PreviouslyQuoted() {
     },
   });
 
+  // Spec-filter dropdowns only offer values present in the manufacturer-scoped
+  // quotes, so the choices stay relevant as the manufacturer filter narrows.
+  const mfrScoped = mfrFilter === "all" ? quotes : quotes.filter(q => q.manufacturer === mfrFilter);
+
   const filtered = quotes.filter(q => {
     const s = search.toLowerCase();
     const matchSearch = !s ||
@@ -373,7 +435,9 @@ export default function PreviouslyQuoted() {
       (q.notes ?? "").toLowerCase().includes(s) ||
       q.files.some(f => f.originalName.toLowerCase().includes(s));
     const matchMfr = mfrFilter === "all" || q.manufacturer === mfrFilter;
-    return matchSearch && matchMfr;
+    const matchSpecs = SPEC_FILTERS.every(f =>
+      specFilters[f.key] === "all" || f.pick(q) === specFilters[f.key]);
+    return matchSearch && matchMfr && matchSpecs;
   });
 
   const sorted = sortQuotes(filtered, sortKey, sortDir);
@@ -429,6 +493,35 @@ export default function PreviouslyQuoted() {
           <UploadQuoteDialog />
         </div>
       </div>
+
+      {/* Component-style filters: model, cab, engine, axles */}
+      {quotes.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
+            <SlidersHorizontal size={12} /> Filter
+          </div>
+          {SPEC_FILTERS.map(f => (
+            <FilterSelect
+              key={f.key}
+              label={f.label}
+              value={specFilters[f.key]}
+              options={specFilterOptions(mfrScoped, f.key)}
+              onChange={v => setSpecFilter(f.key, v)}
+              testId={`select-filter-${f.key}`}
+            />
+          ))}
+          {activeSpecCount > 0 && (
+            <button
+              className="vipr-btn-ghost"
+              style={{ padding: "5px 8px", display: "flex", alignItems: "center", gap: "4px" }}
+              onClick={clearSpecFilters}
+              data-testid="button-clear-filters"
+            >
+              <X size={11} /> Clear {activeSpecCount === 1 ? "filter" : `filters (${activeSpecCount})`}
+            </button>
+          )}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center py-16" style={{ color: "var(--vipr-text-muted)", fontSize: "12px" }}>
