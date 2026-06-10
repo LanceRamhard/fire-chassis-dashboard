@@ -95,6 +95,46 @@ export const insertDependencyRuleSchema = createInsertSchema(dependencyRules).om
 export type InsertDependencyRule = z.infer<typeof insertDependencyRuleSchema>;
 export type DependencyRule = typeof dependencyRules.$inferSelect;
 
+// ─── Previously Quoted (uploaded manufacturer quotes & spec sheets) ──────────
+// A quote groups one or more uploaded documents (quote PDF, spec sheet, …)
+// with searchable metadata so users can find prior quotes for similar trucks.
+// uploadedBy is free text for now; it becomes a user reference once logins land.
+export const quotes = sqliteTable("quotes", {
+  id:            integer("id").primaryKey({ autoIncrement: true }),
+  title:         text("title").notNull(),
+  manufacturer:  text("manufacturer").notNull(),
+  truckModel:    text("truck_model"),
+  apparatusType: text("apparatus_type"),
+  quotedPrice:   text("quoted_price"),
+  quoteDate:     text("quote_date"),                  // ISO date string (YYYY-MM-DD)
+  notes:         text("notes"),
+  uploadedBy:    text("uploaded_by"),
+  createdAt:     integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt:     integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const insertQuoteSchema = createInsertSchema(quotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertQuote = z.infer<typeof insertQuoteSchema>;
+export type Quote = typeof quotes.$inferSelect;
+
+export const quoteFiles = sqliteTable("quote_files", {
+  id:           integer("id").primaryKey({ autoIncrement: true }),
+  quoteId:      integer("quote_id").notNull().references(() => quotes.id, { onDelete: "cascade" }),
+  fileName:     text("file_name").notNull(),          // stored name on disk (random)
+  originalName: text("original_name").notNull(),      // name shown to users / on download
+  mimeType:     text("mime_type").notNull(),
+  fileSize:     integer("file_size").notNull(),
+  createdAt:    integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export type QuoteFile = typeof quoteFiles.$inferSelect;
+export type QuoteWithFiles = Quote & { files: QuoteFile[] };
+
 // ─── App Settings (generic key → JSON value store) ───────────────────────────
 // A small key/value table for global app configuration that doesn't warrant its
 // own table — e.g. the list of which form fields are required. The value column

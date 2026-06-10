@@ -7,6 +7,8 @@ import {
   chassisConfigs,    type ChassisConfig,    type InsertChassisConfig,
   dropdownOptions,   type DropdownOptions,  type InsertDropdownOptions,
   dependencyRules,   type DependencyRule,   type InsertDependencyRule,
+  quotes,            type Quote,            type InsertQuote,
+  quoteFiles,        type QuoteFile,        type QuoteWithFiles,
   appSettings,
 } from "@shared/schema";
 
@@ -88,9 +90,26 @@ export interface IStorage {
   updateDependencyRule(id: number, rule: Partial<InsertDependencyRule>): Promise<DependencyRule | undefined>;
   deleteDependencyRule(id: number): Promise<boolean>;
 
+  // Quotes (uploaded manufacturer quotes & spec sheets)
+  getQuotes(): Promise<QuoteWithFiles[]>;
+  getQuote(id: number): Promise<QuoteWithFiles | undefined>;
+  createQuote(quote: InsertQuote, files: NewQuoteFile[]): Promise<QuoteWithFiles>;
+  updateQuote(id: number, quote: Partial<InsertQuote>): Promise<QuoteWithFiles | undefined>;
+  addQuoteFiles(quoteId: number, files: NewQuoteFile[]): Promise<QuoteWithFiles | undefined>;
+  deleteQuote(id: number): Promise<QuoteFile[] | undefined>; // returns removed files for disk cleanup
+  getQuoteFile(fileId: number): Promise<QuoteFile | undefined>;
+  deleteQuoteFile(fileId: number): Promise<QuoteFile | undefined>;
+
   // App Settings (generic key → JSON value)
   getAppSetting<T = unknown>(key: string): Promise<T | null>;
   setAppSetting<T = unknown>(key: string, value: T): Promise<T>;
+}
+
+export interface NewQuoteFile {
+  fileName: string;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
 }
 
 // ─── Database Storage ─────────────────────────────────────────────────────────
@@ -250,6 +269,82 @@ export class DatabaseStorage implements IStorage {
   async deleteDependencyRule(id: number): Promise<boolean> {
     const result = db.delete(dependencyRules).where(eq(dependencyRules.id, id)).returning().get();
     return !!result;
+  }
+
+  // ── Quotes ──────────────────────────────────────────────────────────────────
+  private withFiles(quote: Quote): QuoteWithFiles {
+    const files = db.select().from(quoteFiles).where(eq(quoteFiles.quoteId, quote.id)).all();
+    return { ...quote, files };
+  }
+
+  async getQuotes(): Promise<QuoteWithFiles[]> {
+    const rows = db.select().from(quotes).orderBy(desc(quotes.createdAt)).all();
+    return rows.map(r => this.withFiles(r));
+  }
+
+  async getQuote(id: number): Promise<QuoteWithFiles | undefined> {
+    const row = db.select().from(quotes).where(eq(quotes.id, id)).get();
+    return row ? this.withFiles(row) : undefined;
+  }
+
+  async createQuote(quote: InsertQuote, files: NewQuoteFile[]): Promise<QuoteWithFiles> {
+    const now = new Date();
+    const row = db.insert(quotes).values({
+      title:         quote.title,
+      manufacturer:  quote.manufacturer,
+      truckModel:    quote.truckModel ?? null,
+      apparatusType: quote.apparatusType ?? null,
+      quotedPrice:   quote.quotedPrice ?? null,
+      quoteDate:     quote.quoteDate ?? null,
+      notes:         quote.notes ?? null,
+      uploadedBy:    quote.uploadedBy ?? null,
+      createdAt:     now,
+      updatedAt:     now,
+    }).returning().get();
+    for (const f of files) {
+      db.insert(quoteFiles).values({ quoteId: row.id, ...f, createdAt: now }).run();
+    }
+    return this.withFiles(row);
+  }
+
+  async updateQuote(id: number, quote: Partial<InsertQuote>): Promise<QuoteWithFiles | undefined> {
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (quote.title         !== undefined) updates.title         = quote.title;
+    if (quote.manufacturer  !== undefined) updates.manufacturer  = quote.manufacturer;
+    if (quote.truckModel    !== undefined) updates.truckModel    = quote.truckModel;
+    if (quote.apparatusType !== undefined) updates.apparatusType = quote.apparatusType;
+    if (quote.quotedPrice   !== undefined) updates.quotedPrice   = quote.quotedPrice;
+    if (quote.quoteDate     !== undefined) updates.quoteDate     = quote.quoteDate;
+    if (quote.notes         !== undefined) updates.notes         = quote.notes;
+    const row = db.update(quotes).set(updates).where(eq(quotes.id, id)).returning().get();
+    return row ? this.withFiles(row) : undefined;
+  }
+
+  async addQuoteFiles(quoteId: number, files: NewQuoteFile[]): Promise<QuoteWithFiles | undefined> {
+    const row = db.select().from(quotes).where(eq(quotes.id, quoteId)).get();
+    if (!row) return undefined;
+    const now = new Date();
+    for (const f of files) {
+      db.insert(quoteFiles).values({ quoteId, ...f, createdAt: now }).run();
+    }
+    db.update(quotes).set({ updatedAt: now }).where(eq(quotes.id, quoteId)).run();
+    return this.withFiles(row);
+  }
+
+  async deleteQuote(id: number): Promise<QuoteFile[] | undefined> {
+    const files = db.select().from(quoteFiles).where(eq(quoteFiles.quoteId, id)).all();
+    const result = db.delete(quotes).where(eq(quotes.id, id)).returning().get();
+    if (!result) return undefined;
+    // ON DELETE CASCADE removes the rows; caller removes the files from disk
+    return files;
+  }
+
+  async getQuoteFile(fileId: number): Promise<QuoteFile | undefined> {
+    return db.select().from(quoteFiles).where(eq(quoteFiles.id, fileId)).get();
+  }
+
+  async deleteQuoteFile(fileId: number): Promise<QuoteFile | undefined> {
+    return db.delete(quoteFiles).where(eq(quoteFiles.id, fileId)).returning().get();
   }
 
   // ── App Settings ──────────────────────────────────────────────────────────

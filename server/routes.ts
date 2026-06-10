@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import fs from "fs";
 import { storage } from "./storage";
+import { quoteUpload, decodeOriginalName, deleteStoredFile, storedFilePath } from "./uploads";
 import { z } from "zod";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -133,6 +135,92 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete("/api/dependency-rules/:id", async (req, res) => {
     const ok = await storage.deleteDependencyRule(Number(req.params.id));
     if (!ok) return res.status(404).json({ message: "Not found" });
+    res.json({ success: true });
+  });
+
+  // ── Previously Quoted (uploaded quotes & spec sheets) ─────────────────────
+  const quoteMetaSchema = z.object({
+    title:         z.string().min(1),
+    manufacturer:  z.string().min(1),
+    truckModel:    z.string().optional(),
+    apparatusType: z.string().optional(),
+    quotedPrice:   z.string().optional(),
+    quoteDate:     z.string().optional(),
+    notes:         z.string().optional(),
+    uploadedBy:    z.string().optional(),
+  });
+
+  const uploadedFiles = (req: { files?: unknown }) =>
+    ((req.files as Express.Multer.File[] | undefined) ?? []).map(f => ({
+      fileName:     f.filename,
+      originalName: decodeOriginalName(f.originalname),
+      mimeType:     f.mimetype,
+      fileSize:     f.size,
+    }));
+
+  app.get("/api/quotes", async (_req, res) => {
+    res.json(await storage.getQuotes());
+  });
+
+  app.get("/api/quotes/:id", async (req, res) => {
+    const item = await storage.getQuote(Number(req.params.id));
+    if (!item) return res.status(404).json({ message: "Not found" });
+    res.json(item);
+  });
+
+  // Multipart: metadata fields + one or more documents under field name "files"
+  app.post("/api/quotes", quoteUpload.array("files"), async (req, res) => {
+    const files = uploadedFiles(req);
+    const parsed = quoteMetaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      files.forEach(f => deleteStoredFile(f.fileName));
+      return res.status(400).json({ message: parsed.error.message });
+    }
+    if (files.length === 0) {
+      return res.status(400).json({ message: "At least one file is required" });
+    }
+    res.json(await storage.createQuote(parsed.data, files));
+  });
+
+  app.patch("/api/quotes/:id", async (req, res) => {
+    const parsed = quoteMetaSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const updated = await storage.updateQuote(Number(req.params.id), parsed.data);
+    if (!updated) return res.status(404).json({ message: "Not found" });
+    res.json(updated);
+  });
+
+  // Attach additional documents to an existing quote
+  app.post("/api/quotes/:id/files", quoteUpload.array("files"), async (req, res) => {
+    const files = uploadedFiles(req);
+    if (files.length === 0) return res.status(400).json({ message: "At least one file is required" });
+    const updated = await storage.addQuoteFiles(Number(req.params.id), files);
+    if (!updated) {
+      files.forEach(f => deleteStoredFile(f.fileName));
+      return res.status(404).json({ message: "Not found" });
+    }
+    res.json(updated);
+  });
+
+  app.delete("/api/quotes/:id", async (req, res) => {
+    const removed = await storage.deleteQuote(Number(req.params.id));
+    if (!removed) return res.status(404).json({ message: "Not found" });
+    removed.forEach(f => deleteStoredFile(f.fileName));
+    res.json({ success: true });
+  });
+
+  app.get("/api/quote-files/:fileId/download", async (req, res) => {
+    const file = await storage.getQuoteFile(Number(req.params.fileId));
+    if (!file) return res.status(404).json({ message: "Not found" });
+    const filePath = storedFilePath(file.fileName);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ message: "File missing on disk" });
+    res.download(filePath, file.originalName);
+  });
+
+  app.delete("/api/quote-files/:fileId", async (req, res) => {
+    const removed = await storage.deleteQuoteFile(Number(req.params.fileId));
+    if (!removed) return res.status(404).json({ message: "Not found" });
+    deleteStoredFile(removed.fileName);
     res.json({ success: true });
   });
 

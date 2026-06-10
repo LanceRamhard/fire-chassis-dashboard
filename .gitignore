@@ -11,3 +11,4 @@ chassis.db-wal
 *.db-shm
 *.db-wal
 migrations/
+uploads/
