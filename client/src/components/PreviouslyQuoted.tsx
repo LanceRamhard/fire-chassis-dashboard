@@ -4,7 +4,7 @@ import { API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion, Link2,
-  Cog, Gauge,
+  Cog, Gauge, ArrowUp, ArrowDown,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -29,6 +29,70 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ─── Sorting ──────────────────────────────────────────────────────────────────
+type SortKey =
+  | "added" | "quoteDate" | "price" | "title" | "model"
+  | "manufacturer" | "cab" | "engine" | "frontAxle" | "rearAxle";
+
+const SORT_OPTIONS: { id: SortKey; label: string }[] = [
+  { id: "added",        label: "Date Added" },
+  { id: "quoteDate",    label: "Quote Date" },
+  { id: "price",        label: "Price" },
+  { id: "title",        label: "Title" },
+  { id: "model",        label: "Model" },
+  { id: "manufacturer", label: "Manufacturer" },
+  { id: "cab",          label: "Cab Type" },
+  { id: "engine",       label: "Engine" },
+  { id: "frontAxle",    label: "Front Axle" },
+  { id: "rearAxle",     label: "Rear Axle" },
+];
+
+// Parse the numeric portion of a value (price, axle weight) — "$187,450" → 187450,
+// "14,600 Lbs" → 14600. Returns null when there's nothing to compare.
+function numericOf(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const n = parseInt(s.replace(/[^0-9]/g, ""), 10);
+  return Number.isNaN(n) ? null : n;
+}
+
+// The axle id (e.g. "14.6k") maps to a label whose number is the rating, so sort
+// by that weight rather than the id/label string.
+function axleWeight(list: { id: string; label: string }[], id: string | null): number | null {
+  return numericOf(list.find(o => o.id === id)?.label);
+}
+
+// Comparable value for a quote under the chosen sort key. Numbers sort numerically,
+// strings case-insensitively; null means "no value" and always sorts last.
+function sortValue(q: QuoteWithFiles, key: SortKey): number | string | null {
+  switch (key) {
+    case "added":        return new Date(q.createdAt).getTime();
+    case "quoteDate":    return q.quoteDate ? new Date(`${q.quoteDate}T00:00:00`).getTime() : null;
+    case "price":        return numericOf(q.quotedPrice);
+    case "title":        return q.title.toLowerCase() || null;
+    case "model":        return q.truckModel?.toLowerCase() || null;
+    case "manufacturer": return (MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer).toLowerCase() || null;
+    case "cab":          return ALL_CABS.find(o => o.id === q.cabConfig)?.label.toLowerCase() ?? null;
+    case "engine":       return ALL_ENGINES.find(o => o.id === q.engine)?.label.toLowerCase() ?? null;
+    case "frontAxle":    return axleWeight(ALL_FRONT_AXLES, q.frontAxle);
+    case "rearAxle":     return axleWeight(ALL_REAR_AXLES, q.rearAxle);
+  }
+}
+
+function sortQuotes(list: QuoteWithFiles[], key: SortKey, dir: "asc" | "desc"): QuoteWithFiles[] {
+  return [...list].sort((a, b) => {
+    const av = sortValue(a, key);
+    const bv = sortValue(b, key);
+    // Quotes missing the sorted field sink to the bottom regardless of direction.
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    const cmp = typeof av === "number" && typeof bv === "number"
+      ? av - bv
+      : String(av).localeCompare(String(bv));
+    return dir === "asc" ? cmp : -cmp;
+  });
 }
 
 // ─── Upload dialog ────────────────────────────────────────────────────────────
@@ -282,6 +346,8 @@ export default function PreviouslyQuoted() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [mfrFilter, setMfrFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("added");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const { data: quotes = [], isLoading } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
   const { data: requests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
@@ -310,6 +376,8 @@ export default function PreviouslyQuoted() {
     return matchSearch && matchMfr;
   });
 
+  const sorted = sortQuotes(filtered, sortKey, sortDir);
+
   return (
     <div className="space-y-4">
       {/* Toolbar: search, manufacturer filter, upload */}
@@ -336,7 +404,28 @@ export default function PreviouslyQuoted() {
             </button>
           ))}
         </div>
-        <div className="ml-auto">
+        <div className="flex items-center gap-1 ml-auto">
+          <span style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>Sort</span>
+          <select
+            className="vipr-input"
+            style={{ width: "auto", paddingRight: "24px" }}
+            value={sortKey}
+            onChange={e => setSortKey(e.target.value as SortKey)}
+            data-testid="select-sort-quotes"
+          >
+            {SORT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+          <button
+            className="vipr-btn-ghost"
+            style={{ padding: "5px 7px" }}
+            onClick={() => setSortDir(d => (d === "asc" ? "desc" : "asc"))}
+            title={sortDir === "asc" ? "Ascending" : "Descending"}
+            data-testid="button-sort-direction"
+          >
+            {sortDir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+          </button>
+        </div>
+        <div>
           <UploadQuoteDialog />
         </div>
       </div>
@@ -358,7 +447,7 @@ export default function PreviouslyQuoted() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {filtered.map(q => {
+          {sorted.map(q => {
             const mfrLabel = MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer;
             const apparatusLabel = APPARATUS_TYPES.find(t => t.id === q.apparatusType)?.label;
             const cabLabel = ALL_CABS.find(o => o.id === q.cabConfig)?.label ?? q.cabConfig;
