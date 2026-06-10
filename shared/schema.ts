@@ -101,6 +101,10 @@ export type DependencyRule = typeof dependencyRules.$inferSelect;
 // uploadedBy is free text for now; it becomes a user reference once logins land.
 export const quotes = sqliteTable("quotes", {
   id:            integer("id").primaryKey({ autoIncrement: true }),
+  // Optional link to a saved chassis request. When set, the quote's metadata is
+  // inherited from that request so it doesn't have to be re-entered. Nullable —
+  // a quote can stand alone, and deleting a request unlinks (not deletes) it.
+  requestId:     integer("request_id").references(() => chassisRequests.id, { onDelete: "set null" }),
   title:         text("title").notNull(),
   manufacturer:  text("manufacturer").notNull(),
   truckModel:    text("truck_model"),

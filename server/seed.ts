@@ -53,6 +53,7 @@ export function createTables() {
 
     CREATE TABLE IF NOT EXISTS quotes (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id     INTEGER REFERENCES chassis_requests(id) ON DELETE SET NULL,
       title          TEXT    NOT NULL,
       manufacturer   TEXT    NOT NULL,
       truck_model    TEXT,
@@ -114,6 +115,14 @@ export function createTables() {
     if (legacy.length > 0) {
       console.log(`[seed] Migrated ${legacy.length} dependency rules to multi-value conditions.`);
     }
+  }
+
+  // Idempotent migration: add the request_id link column to pre-existing quotes
+  // tables. ON DELETE SET NULL is honored because the column defaults to NULL.
+  const quoteCols = sqlite.prepare(`PRAGMA table_info(quotes)`).all() as { name: string }[];
+  if (quoteCols.length > 0 && !quoteCols.some(c => c.name === "request_id")) {
+    sqlite.exec(`ALTER TABLE quotes ADD COLUMN request_id INTEGER REFERENCES chassis_requests(id) ON DELETE SET NULL`);
+    console.log("[seed] Added request_id link column to quotes.");
   }
 }
 

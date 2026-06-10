@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { FolderOpen, Trash2, Search, Clock, Truck, Calendar } from "lucide-react";
+import { FolderOpen, Trash2, Search, Clock, Truck, Calendar, Paperclip, FileText, Download, X } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { ChassisRequest } from "@shared/schema";
+import type { ChassisRequest, QuoteWithFiles } from "@shared/schema";
 import { MANUFACTURERS } from "@/lib/chassis-data";
 import { scheduleFormLoad } from "./RequestForm";
+import { UploadQuoteDialog } from "./PreviouslyQuoted";
 import { format } from "date-fns";
 
 export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
@@ -18,12 +19,28 @@ export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
   const [mfrFilter, setMfrFilter] = useState("all");
 
   const { data: requests = [], isLoading } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
+  const { data: quotes = [] } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
+
+  // Documents linked to a request: flatten the files of every quote tied to it.
+  const docsFor = (requestId: number) =>
+    quotes.filter(q => q.requestId === requestId).flatMap(q => q.files);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/requests/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/requests"] });
       toast({ title: "Deleted" });
+    },
+  });
+
+  const deleteFileMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      const res = await fetch(`${API_BASE}/api/quote-files/${fileId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({ title: "Document removed" });
     },
   });
 
@@ -147,6 +164,37 @@ export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
                     {format(new Date(req.createdAt), "MMM d, yyyy")}
                   </div>
 
+                  {/* Linked quote & spec documents */}
+                  {(() => {
+                    const docs = docsFor(req.id);
+                    if (docs.length === 0) return null;
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: "8px" }}>
+                        {docs.map(f => (
+                          <div key={f.id} className="flex items-center gap-1.5"
+                            style={{ fontSize: "10px", padding: "3px 6px", borderRadius: "4px", border: "1px solid var(--vipr-border)", background: "var(--vipr-surface-2)" }}>
+                            <FileText size={10} style={{ color: "var(--vipr-orange)", flexShrink: 0 }} />
+                            <a href={`${API_BASE}/api/quote-files/${f.id}/download`}
+                              className="flex items-center gap-1"
+                              style={{ color: "var(--vipr-text)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}
+                              data-testid={`link-request-doc-${f.id}`}
+                              title={`Download ${f.originalName}`}>
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.originalName}</span>
+                              <Download size={9} style={{ color: "var(--vipr-text-muted)", flexShrink: 0 }} />
+                            </a>
+                            <button
+                              onClick={() => deleteFileMutation.mutate(f.id)}
+                              title="Remove document"
+                              data-testid={`button-remove-doc-${f.id}`}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--vipr-text-muted)", padding: 0, display: "flex", flexShrink: 0 }}>
+                              <X size={11} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   <div className="flex gap-1.5">
                     <button
                       className="vipr-btn-primary"
@@ -156,6 +204,19 @@ export default function SavedRequests({ onLoad }: { onLoad: () => void }) {
                     >
                       <FolderOpen size={11} /> Load
                     </button>
+                    <UploadQuoteDialog
+                      presetRequestId={req.id}
+                      trigger={
+                        <button
+                          className="vipr-btn-ghost"
+                          style={{ padding: "5px 8px" }}
+                          title="Attach quote / spec documents"
+                          data-testid={`button-attach-${req.id}`}
+                        >
+                          <Paperclip size={11} />
+                        </button>
+                      }
+                    />
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <button

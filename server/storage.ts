@@ -290,6 +290,7 @@ export class DatabaseStorage implements IStorage {
   async createQuote(quote: InsertQuote, files: NewQuoteFile[]): Promise<QuoteWithFiles> {
     const now = new Date();
     const row = db.insert(quotes).values({
+      requestId:     quote.requestId ?? null,
       title:         quote.title,
       manufacturer:  quote.manufacturer,
       truckModel:    quote.truckModel ?? null,
@@ -309,6 +310,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateQuote(id: number, quote: Partial<InsertQuote>): Promise<QuoteWithFiles | undefined> {
     const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (quote.requestId     !== undefined) updates.requestId     = quote.requestId;
     if (quote.title         !== undefined) updates.title         = quote.title;
     if (quote.manufacturer  !== undefined) updates.manufacturer  = quote.manufacturer;
     if (quote.truckModel    !== undefined) updates.truckModel    = quote.truckModel;
