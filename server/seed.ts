@@ -58,6 +58,7 @@ export function createTables() {
       manufacturer   TEXT    NOT NULL,
       truck_model    TEXT,
       apparatus_type TEXT,
+      cab_config     TEXT,
       engine         TEXT,
       front_axle     TEXT,
       rear_axle      TEXT,
@@ -131,7 +132,7 @@ export function createTables() {
   // Idempotent migration: add the truck-spec columns (engine, axle ratings) so
   // prior quotes can surface the same details newer ones capture.
   if (quoteCols.length > 0) {
-    for (const col of ["engine", "front_axle", "rear_axle"]) {
+    for (const col of ["cab_config", "engine", "front_axle", "rear_axle"]) {
       if (!quoteCols.some(c => c.name === col)) {
         sqlite.exec(`ALTER TABLE quotes ADD COLUMN ${col} TEXT`);
         console.log(`[seed] Added ${col} column to quotes.`);

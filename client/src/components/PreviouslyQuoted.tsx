@@ -14,7 +14,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { QuoteWithFiles, ChassisRequest, ChassisConfig } from "@shared/schema";
-import { MANUFACTURERS, APPARATUS_TYPES, ALL_ENGINES, ALL_FRONT_AXLES, ALL_REAR_AXLES } from "@/lib/chassis-data";
+import { MANUFACTURERS, APPARATUS_TYPES, ALL_CABS, ALL_ENGINES, ALL_FRONT_AXLES, ALL_REAR_AXLES } from "@/lib/chassis-data";
 import { format } from "date-fns";
 
 // Resolve a request's truck-model id (e.g. "m2_106") to its label ("M2 106").
@@ -42,6 +42,7 @@ export function UploadQuoteDialog(
   const [manufacturer, setManufacturer] = useState("");
   const [truckModel, setTruckModel] = useState("");
   const [apparatusType, setApparatusType] = useState("");
+  const [cabConfig, setCabConfig] = useState("");
   const [engine, setEngine] = useState("");
   const [frontAxle, setFrontAxle] = useState("");
   const [rearAxle, setRearAxle] = useState("");
@@ -57,7 +58,7 @@ export function UploadQuoteDialog(
   const reset = () => {
     setRequestId(presetRequestId ? String(presetRequestId) : "");
     setTitle(""); setManufacturer(""); setTruckModel(""); setApparatusType("");
-    setEngine(""); setFrontAxle(""); setRearAxle("");
+    setCabConfig(""); setEngine(""); setFrontAxle(""); setRearAxle("");
     setQuotedPrice(""); setQuoteDate(""); setNotes(""); setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -73,6 +74,7 @@ export function UploadQuoteDialog(
     setManufacturer(req.manufacturer);
     setTruckModel(modelLabelFor(req, configs));
     if (fd?.apparatusType) setApparatusType(fd.apparatusType);
+    if (fd?.cabConfig)     setCabConfig(fd.cabConfig);
     if (fd?.engine)        setEngine(fd.engine);
     if (fd?.frontAxle)     setFrontAxle(fd.frontAxle);
     if (fd?.rearAxle)      setRearAxle(fd.rearAxle);
@@ -86,6 +88,7 @@ export function UploadQuoteDialog(
       fd.append("manufacturer", manufacturer);
       if (truckModel.trim())  fd.append("truckModel", truckModel.trim());
       if (apparatusType)      fd.append("apparatusType", apparatusType);
+      if (cabConfig)          fd.append("cabConfig", cabConfig);
       if (engine)             fd.append("engine", engine);
       if (frontAxle)          fd.append("frontAxle", frontAxle);
       if (rearAxle)           fd.append("rearAxle", rearAxle);
@@ -187,6 +190,14 @@ export function UploadQuoteDialog(
               data-testid="select-quote-apparatus">
               <option value="">Select…</option>
               {APPARATUS_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="vipr-field-label">Cab Config</div>
+            <select className="vipr-input" value={cabConfig} onChange={e => setCabConfig(e.target.value)}
+              data-testid="select-quote-cab">
+              <option value="">Select…</option>
+              {ALL_CABS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </div>
           <div>
@@ -350,6 +361,7 @@ export default function PreviouslyQuoted() {
           {filtered.map(q => {
             const mfrLabel = MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer;
             const apparatusLabel = APPARATUS_TYPES.find(t => t.id === q.apparatusType)?.label;
+            const cabLabel = ALL_CABS.find(o => o.id === q.cabConfig)?.label ?? q.cabConfig;
             const engineLabel = ALL_ENGINES.find(o => o.id === q.engine)?.label ?? q.engine;
             const frontAxleLabel = ALL_FRONT_AXLES.find(o => o.id === q.frontAxle)?.label ?? q.frontAxle;
             const rearAxleLabel = ALL_REAR_AXLES.find(o => o.id === q.rearAxle)?.label ?? q.rearAxle;
@@ -404,6 +416,13 @@ export default function PreviouslyQuoted() {
                     {apparatusLabel && (
                       <div style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
                         {apparatusLabel}
+                      </div>
+                    )}
+                    {cabLabel && (
+                      <div data-testid={`text-quote-cab-${q.id}`}
+                        style={{ fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={`Cab: ${cabLabel}`}>
+                        {cabLabel}
                       </div>
                     )}
                     {engineLabel && (

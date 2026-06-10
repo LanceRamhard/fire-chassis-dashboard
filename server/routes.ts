@@ -145,6 +145,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     manufacturer:  z.string().min(1),
     truckModel:    z.string().optional(),
     apparatusType: z.string().optional(),
+    cabConfig:     z.string().optional(),
     engine:        z.string().optional(),
     frontAxle:     z.string().optional(),
     rearAxle:      z.string().optional(),
