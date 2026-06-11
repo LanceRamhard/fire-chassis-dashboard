@@ -97,7 +97,7 @@ const FORM_KEY_LABELS: Record<string, string> = {
 };
 
 // Module-level pending load — survives tab remounts.
-// SavedRequests writes here; RequestForm reads + clears on mount.
+// The Saved & Quoted tab writes here; RequestForm reads + clears on mount.
 let pendingLoad: { form: FormState; id: number } | null = null;
 
 export function scheduleFormLoad(form: FormState, id: number) {
@@ -267,7 +267,7 @@ export default function RequestForm() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<number | undefined>();
 
-  // Consume any pending load written before this mount (from SavedRequests tab switch)
+  // Consume any pending load written before this mount (from the Saved & Quoted tab switch)
   useEffect(() => {
     if (pendingLoad) {
       setForm(pendingLoad.form);

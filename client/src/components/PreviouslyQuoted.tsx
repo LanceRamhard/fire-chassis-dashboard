@@ -1,10 +1,10 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { API_BASE, queryClient } from "@/lib/queryClient";
+import { apiRequest, API_BASE, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, Trash2, Search, FileText, Truck, Calendar, DollarSign, Download, Paperclip, FileQuestion, Link2,
-  Cog, Gauge, ArrowUp, ArrowDown, SlidersHorizontal, X,
+  Cog, Gauge, ArrowUp, ArrowDown, SlidersHorizontal, X, FolderOpen, MapPin,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { QuoteWithFiles, ChassisRequest, ChassisConfig } from "@shared/schema";
 import { MANUFACTURERS, APPARATUS_TYPES, ALL_CABS, ALL_ENGINES, ALL_FRONT_AXLES, ALL_REAR_AXLES } from "@/lib/chassis-data";
+import { scheduleFormLoad } from "./RequestForm";
 import { format } from "date-fns";
 
 // Resolve a request's truck-model id (e.g. "m2_106") to its label ("M2 106").
@@ -29,6 +30,86 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ─── Price formatting ─────────────────────────────────────────────────────────
+// Quoted prices are whole dollars. As the user types we group digits and prefix a
+// "$" so the field reads "$100,000". On the cards the dollar sign is drawn as an
+// icon, so the display helper returns the grouped digits without the "$".
+function formatPriceInput(raw: string): string {
+  const digits = raw.replace(/[^0-9]/g, "");
+  return digits ? `$${Number(digits).toLocaleString("en-US")}` : "";
+}
+
+function formatPriceDisplay(raw: string): string {
+  const digits = raw.replace(/[^0-9]/g, "");
+  return digits ? Number(digits).toLocaleString("en-US") : raw.replace(/^\$/, "");
+}
+
+// ─── Unified grid row ─────────────────────────────────────────────────────────
+// Saved requests and uploaded quotes share one grid, so each is normalized to a
+// common shape for searching, filtering, sorting and the shared card header/specs.
+// Spec ids (cab/engine/axles) live in columns on quotes and in formData on
+// requests; truckModel is normalized to its label so the two kinds line up.
+interface Row {
+  key: string;
+  kind: "quote" | "request";
+  quote?: QuoteWithFiles;
+  request?: ChassisRequest;
+  manufacturer: string;
+  title: string;
+  subtitle: string | null;        // quote notes / request customer name
+  truckModel: string | null;      // resolved label
+  apparatusType: string | null;
+  cabConfig: string | null;
+  engine: string | null;
+  frontAxle: string | null;
+  rearAxle: string | null;
+  price: string | null;           // quotes only
+  quoteDate: string | null;       // quotes only
+  createdAt: Date;
+  searchText: string;
+}
+
+function quoteRow(q: QuoteWithFiles): Row {
+  return {
+    key: `q${q.id}`, kind: "quote", quote: q,
+    manufacturer: q.manufacturer,
+    title: q.title,
+    subtitle: q.notes || null,
+    truckModel: q.truckModel || null,
+    apparatusType: q.apparatusType || null,
+    cabConfig: q.cabConfig || null,
+    engine: q.engine || null,
+    frontAxle: q.frontAxle || null,
+    rearAxle: q.rearAxle || null,
+    price: q.quotedPrice || null,
+    quoteDate: q.quoteDate || null,
+    createdAt: new Date(q.createdAt),
+    searchText: [q.title, q.truckModel, q.notes, ...q.files.map(f => f.originalName)]
+      .filter(Boolean).join(" ").toLowerCase(),
+  };
+}
+
+function requestRow(r: ChassisRequest, configs: ChassisConfig[]): Row {
+  const fd = r.formData as any;
+  return {
+    key: `r${r.id}`, kind: "request", request: r,
+    manufacturer: r.manufacturer,
+    title: r.configName,
+    subtitle: fd.customerName || null,
+    truckModel: modelLabelFor(r, configs) || null,
+    apparatusType: fd.apparatusType || null,
+    cabConfig: fd.cabConfig || null,
+    engine: fd.engine || null,
+    frontAxle: fd.frontAxle || null,
+    rearAxle: fd.rearAxle || null,
+    price: null,
+    quoteDate: null,
+    createdAt: new Date(r.createdAt),
+    searchText: [r.configName, fd.customerName, fd.city, fd.state]
+      .filter(Boolean).join(" ").toLowerCase(),
+  };
 }
 
 // ─── Sorting ──────────────────────────────────────────────────────────────────
@@ -63,28 +144,28 @@ function axleWeight(list: { id: string; label: string }[], id: string | null): n
   return numericOf(list.find(o => o.id === id)?.label);
 }
 
-// Comparable value for a quote under the chosen sort key. Numbers sort numerically,
+// Comparable value for a row under the chosen sort key. Numbers sort numerically,
 // strings case-insensitively; null means "no value" and always sorts last.
-function sortValue(q: QuoteWithFiles, key: SortKey): number | string | null {
+function sortValue(r: Row, key: SortKey): number | string | null {
   switch (key) {
-    case "added":        return new Date(q.createdAt).getTime();
-    case "quoteDate":    return q.quoteDate ? new Date(`${q.quoteDate}T00:00:00`).getTime() : null;
-    case "price":        return numericOf(q.quotedPrice);
-    case "title":        return q.title.toLowerCase() || null;
-    case "model":        return q.truckModel?.toLowerCase() || null;
-    case "manufacturer": return (MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer).toLowerCase() || null;
-    case "cab":          return ALL_CABS.find(o => o.id === q.cabConfig)?.label.toLowerCase() ?? null;
-    case "engine":       return ALL_ENGINES.find(o => o.id === q.engine)?.label.toLowerCase() ?? null;
-    case "frontAxle":    return axleWeight(ALL_FRONT_AXLES, q.frontAxle);
-    case "rearAxle":     return axleWeight(ALL_REAR_AXLES, q.rearAxle);
+    case "added":        return r.createdAt.getTime();
+    case "quoteDate":    return r.quoteDate ? new Date(`${r.quoteDate}T00:00:00`).getTime() : null;
+    case "price":        return numericOf(r.price);
+    case "title":        return r.title.toLowerCase() || null;
+    case "model":        return r.truckModel?.toLowerCase() || null;
+    case "manufacturer": return (MANUFACTURERS.find(m => m.id === r.manufacturer)?.label ?? r.manufacturer).toLowerCase() || null;
+    case "cab":          return ALL_CABS.find(o => o.id === r.cabConfig)?.label.toLowerCase() ?? null;
+    case "engine":       return ALL_ENGINES.find(o => o.id === r.engine)?.label.toLowerCase() ?? null;
+    case "frontAxle":    return axleWeight(ALL_FRONT_AXLES, r.frontAxle);
+    case "rearAxle":     return axleWeight(ALL_REAR_AXLES, r.rearAxle);
   }
 }
 
-function sortQuotes(list: QuoteWithFiles[], key: SortKey, dir: "asc" | "desc"): QuoteWithFiles[] {
+function sortRows(list: Row[], key: SortKey, dir: "asc" | "desc"): Row[] {
   return [...list].sort((a, b) => {
     const av = sortValue(a, key);
     const bv = sortValue(b, key);
-    // Quotes missing the sorted field sink to the bottom regardless of direction.
+    // Rows missing the sorted field sink to the bottom regardless of direction.
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
@@ -96,27 +177,27 @@ function sortQuotes(list: QuoteWithFiles[], key: SortKey, dir: "asc" | "desc"): 
 }
 
 // ─── Filtering ──────────────────────────────────────────────────────────────
-// The component-style filters and how each picks its value off a quote.
+// The component-style filters and how each picks its value off a row.
 type SpecFilterKey = "model" | "cab" | "engine" | "frontAxle" | "rearAxle";
 
-const SPEC_FILTERS: { key: SpecFilterKey; label: string; pick: (q: QuoteWithFiles) => string | null }[] = [
-  { key: "model",     label: "Model",      pick: q => q.truckModel },
-  { key: "cab",       label: "Cab",        pick: q => q.cabConfig },
-  { key: "engine",    label: "Engine",     pick: q => q.engine },
-  { key: "frontAxle", label: "Front Axle", pick: q => q.frontAxle },
-  { key: "rearAxle",  label: "Rear Axle",  pick: q => q.rearAxle },
+const SPEC_FILTERS: { key: SpecFilterKey; label: string; pick: (r: Row) => string | null }[] = [
+  { key: "model",     label: "Model",      pick: r => r.truckModel },
+  { key: "cab",       label: "Cab",        pick: r => r.cabConfig },
+  { key: "engine",    label: "Engine",     pick: r => r.engine },
+  { key: "frontAxle", label: "Front Axle", pick: r => r.frontAxle },
+  { key: "rearAxle",  label: "Rear Axle",  pick: r => r.rearAxle },
 ];
 
 type SpecFilters = Record<SpecFilterKey, string>;
 const NO_SPEC_FILTERS: SpecFilters = { model: "all", cab: "all", engine: "all", frontAxle: "all", rearAxle: "all" };
 
 // The selectable values for a spec filter, drawn only from values that actually
-// appear in the supplied quotes so the dropdowns never offer empty results.
+// appear in the supplied rows so the dropdowns never offer empty results.
 // Option-id fields (cab/engine/axles) map through their master tables for labels
-// and ordering; truckModel is free text, so distinct values are sorted as-is.
-function specFilterOptions(quotes: QuoteWithFiles[], key: SpecFilterKey): { id: string; label: string }[] {
+// and ordering; truckModel is already a label, so distinct values are sorted as-is.
+function specFilterOptions(rows: Row[], key: SpecFilterKey): { id: string; label: string }[] {
   const pick = SPEC_FILTERS.find(f => f.key === key)!.pick;
-  const present = new Set(quotes.map(pick).filter((v): v is string => !!v));
+  const present = new Set(rows.map(pick).filter((v): v is string => !!v));
   if (key === "model") {
     return Array.from(present).sort((a, b) => a.localeCompare(b)).map(v => ({ id: v, label: v.toUpperCase() }));
   }
@@ -342,8 +423,9 @@ export function UploadQuoteDialog(
           </div>
           <div>
             <div className="vipr-field-label">Quoted Price</div>
-            <input className="vipr-input" value={quotedPrice} onChange={e => setQuotedPrice(e.target.value)}
-              placeholder="e.g. $187,450" data-testid="input-quote-price" />
+            <input className="vipr-input" value={quotedPrice}
+              onChange={e => setQuotedPrice(formatPriceInput(e.target.value))}
+              inputMode="numeric" placeholder="e.g. $187,450" data-testid="input-quote-price" />
           </div>
           <div>
             <div className="vipr-field-label">Quote Date</div>
@@ -393,8 +475,11 @@ export function UploadQuoteDialog(
   );
 }
 
-// ─── Previously Quoted tab ────────────────────────────────────────────────────
-export default function PreviouslyQuoted() {
+// ─── Saved & Quoted tab ───────────────────────────────────────────────────────
+// Merged view: saved chassis requests and uploaded quotes in one filtered,
+// sortable grid of cards. Requests can be loaded back into the form or have
+// documents attached; quotes expose their downloadable documents.
+export default function PreviouslyQuoted({ onLoad }: { onLoad?: () => void } = {}) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [mfrFilter, setMfrFilter] = useState("all");
@@ -407,12 +492,15 @@ export default function PreviouslyQuoted() {
   const clearSpecFilters = () => setSpecFilters(NO_SPEC_FILTERS);
   const activeSpecCount = SPEC_FILTERS.filter(f => specFilters[f.key] !== "all").length;
 
-  const { data: quotes = [], isLoading } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
-  const { data: requests = [] } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
+  const { data: quotes = [], isLoading: quotesLoading } = useQuery<QuoteWithFiles[]>({ queryKey: ["/api/quotes"] });
+  const { data: requests = [], isLoading: requestsLoading } = useQuery<ChassisRequest[]>({ queryKey: ["/api/requests"] });
+  const { data: configs = [] } = useQuery<ChassisConfig[]>({ queryKey: ["/api/configs"] });
+  const isLoading = quotesLoading || requestsLoading;
+
   const requestName = (id: number | null) =>
     id == null ? undefined : requests.find(r => r.id === id)?.configName;
 
-  const deleteMutation = useMutation({
+  const deleteQuoteMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await fetch(`${API_BASE}/api/quotes/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.text()) || res.statusText);
@@ -423,35 +511,54 @@ export default function PreviouslyQuoted() {
     },
   });
 
-  // Spec-filter dropdowns only offer values present in the manufacturer-scoped
-  // quotes, so the choices stay relevant as the manufacturer filter narrows.
-  const mfrScoped = mfrFilter === "all" ? quotes : quotes.filter(q => q.manufacturer === mfrFilter);
+  const deleteRequestMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/requests/${id}`),
+    onSuccess: () => {
+      // A deleted request unlinks its quotes (set null), so refresh both lists.
+      queryClient.invalidateQueries({ queryKey: ["/api/requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
+      toast({ title: "Deleted" });
+    },
+  });
 
-  const filtered = quotes.filter(q => {
+  const handleLoad = (req: ChassisRequest) => {
+    // Write to the module-level pending slot BEFORE the tab switch mounts RequestForm.
+    scheduleFormLoad(req.formData as any, req.id);
+    toast({ title: "Loaded", description: `"${req.configName}" loaded.` });
+    onLoad?.(); // switches tab → RequestForm mounts → reads pendingLoad
+  };
+
+  // Normalize both kinds into rows, then search / filter / sort over the unified set.
+  const allRows: Row[] = [
+    ...quotes.map(quoteRow),
+    ...requests.map(r => requestRow(r, configs)),
+  ];
+
+  // Spec-filter dropdowns only offer values present in the manufacturer-scoped
+  // rows, so the choices stay relevant as the manufacturer filter narrows.
+  const mfrScoped = mfrFilter === "all" ? allRows : allRows.filter(r => r.manufacturer === mfrFilter);
+
+  const filtered = allRows.filter(r => {
     const s = search.toLowerCase();
-    const matchSearch = !s ||
-      q.title.toLowerCase().includes(s) ||
-      (q.truckModel ?? "").toLowerCase().includes(s) ||
-      (q.notes ?? "").toLowerCase().includes(s) ||
-      q.files.some(f => f.originalName.toLowerCase().includes(s));
-    const matchMfr = mfrFilter === "all" || q.manufacturer === mfrFilter;
+    const matchSearch = !s || r.searchText.includes(s);
+    const matchMfr = mfrFilter === "all" || r.manufacturer === mfrFilter;
     const matchSpecs = SPEC_FILTERS.every(f =>
-      specFilters[f.key] === "all" || f.pick(q) === specFilters[f.key]);
+      specFilters[f.key] === "all" || f.pick(r) === specFilters[f.key]);
     return matchSearch && matchMfr && matchSpecs;
   });
 
-  const sorted = sortQuotes(filtered, sortKey, sortDir);
+  const sorted = sortRows(filtered, sortKey, sortDir);
 
   return (
     <div className="space-y-4">
-      {/* Toolbar: search, manufacturer filter, upload */}
+      {/* Toolbar: search, manufacturer filter, sort, upload */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative">
           <Search size={12} style={{ position: "absolute", left: "8px", top: "9px", color: "var(--vipr-text-muted)" }} />
           <input
             className="vipr-input"
             style={{ paddingLeft: "26px", width: "220px" }}
-            placeholder="Search quotes…"
+            placeholder="Search requests & quotes…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             data-testid="input-search-quotes"
@@ -495,7 +602,7 @@ export default function PreviouslyQuoted() {
       </div>
 
       {/* Component-style filters: model, cab, engine, axles */}
-      {quotes.length > 0 && (
+      {allRows.length > 0 && (
         <div className="flex flex-wrap gap-2 items-center">
           <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
             <SlidersHorizontal size={12} /> Filter
@@ -532,27 +639,31 @@ export default function PreviouslyQuoted() {
           style={{ color: "var(--vipr-text-muted)" }}>
           <FileQuestion size={40} style={{ opacity: 0.2 }} />
           <p style={{ fontSize: "12px" }}>
-            {quotes.length === 0
-              ? "No quotes uploaded yet. Upload received quotes and spec sheets so the whole team can reference them."
+            {allRows.length === 0
+              ? "Nothing saved yet. Save a request from the form, or upload received quotes and spec sheets so the whole team can reference them."
               : "No results match your filters."}
           </p>
-          {quotes.length === 0 && <UploadQuoteDialog />}
+          {allRows.length === 0 && <UploadQuoteDialog />}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {sorted.map(q => {
-            const mfrLabel = MANUFACTURERS.find(m => m.id === q.manufacturer)?.label ?? q.manufacturer;
-            const apparatusLabel = APPARATUS_TYPES.find(t => t.id === q.apparatusType)?.label;
-            const cabLabel = ALL_CABS.find(o => o.id === q.cabConfig)?.label ?? q.cabConfig;
-            const engineLabel = ALL_ENGINES.find(o => o.id === q.engine)?.label ?? q.engine;
-            const frontAxleLabel = ALL_FRONT_AXLES.find(o => o.id === q.frontAxle)?.label ?? q.frontAxle;
-            const rearAxleLabel = ALL_REAR_AXLES.find(o => o.id === q.rearAxle)?.label ?? q.rearAxle;
+          {sorted.map(r => {
+            const mfrLabel = MANUFACTURERS.find(m => m.id === r.manufacturer)?.label ?? r.manufacturer;
+            const apparatusLabel = APPARATUS_TYPES.find(t => t.id === r.apparatusType)?.label;
+            const cabLabel = ALL_CABS.find(o => o.id === r.cabConfig)?.label;
+            const engineLabel = ALL_ENGINES.find(o => o.id === r.engine)?.label;
+            const frontAxleLabel = ALL_FRONT_AXLES.find(o => o.id === r.frontAxle)?.label;
+            const rearAxleLabel = ALL_REAR_AXLES.find(o => o.id === r.rearAxle)?.label;
             const axleLabel = frontAxleLabel && rearAxleLabel
               ? `${frontAxleLabel} / ${rearAxleLabel}`
               : (frontAxleLabel || rearAxleLabel);
-            const linkedName = requestName(q.requestId);
+            const isQuote = r.kind === "quote";
+            const fd = r.request?.formData as any;
+            const cityState = !isQuote && fd?.city && fd?.state ? `${fd.city}, ${fd.state}` : null;
+            const linkedName = isQuote ? requestName(r.quote!.requestId ?? null) : undefined;
+
             return (
-              <div key={q.id} className="vipr-card" data-testid={`card-quote-${q.id}`}>
+              <div key={r.key} className="vipr-card" data-testid={`card-${r.kind}-${isQuote ? r.quote!.id : r.request!.id}`}>
                 {/* Card header */}
                 <div style={{
                   background: "var(--vipr-surface-2)",
@@ -566,33 +677,39 @@ export default function PreviouslyQuoted() {
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--vipr-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {q.title}
+                      {r.title}
                     </div>
-                    {q.notes && (
+                    {r.subtitle && (
                       <div style={{ fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {q.notes}
+                        {r.subtitle}
                       </div>
                     )}
                   </div>
-                  <span className={`mfr-${q.manufacturer}`}
-                    style={{ fontSize: "9px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px", letterSpacing: "0.05em", textTransform: "uppercase", flexShrink: 0 }}>
-                    {mfrLabel}
-                  </span>
+                  <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+                    {/* Kind chip — distinguishes requests from quotes in the mixed grid */}
+                    <span style={{ fontSize: "9px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px", letterSpacing: "0.05em", textTransform: "uppercase", background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text-muted)" }}>
+                      {isQuote ? "Quote" : "Request"}
+                    </span>
+                    <span className={`mfr-${r.manufacturer}`}
+                      style={{ fontSize: "9px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                      {mfrLabel}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Card body */}
                 <div style={{ padding: "8px 10px" }}>
                   {linkedName && (
-                    <div className="flex items-center gap-1" data-testid={`link-quote-request-${q.id}`}
+                    <div className="flex items-center gap-1" data-testid={`link-quote-request-${r.quote!.id}`}
                       style={{ fontSize: "10px", color: "var(--vipr-orange)", marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                       title={`Linked to saved request: ${linkedName}`}>
                       <Link2 size={9} style={{ flexShrink: 0 }} /> {linkedName}
                     </div>
                   )}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px", marginBottom: "8px" }}>
-                    {q.truckModel && (
+                    {r.truckModel && (
                       <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
-                        <Truck size={9} /> {q.truckModel.toUpperCase()}
+                        <Truck size={9} /> {r.truckModel.toUpperCase()}
                       </div>
                     )}
                     {apparatusLabel && (
@@ -601,93 +718,163 @@ export default function PreviouslyQuoted() {
                       </div>
                     )}
                     {cabLabel && (
-                      <div data-testid={`text-quote-cab-${q.id}`}
+                      <div data-testid={`text-${r.kind}-cab-${isQuote ? r.quote!.id : r.request!.id}`}
                         style={{ fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={`Cab: ${cabLabel}`}>
                         {cabLabel}
                       </div>
                     )}
                     {engineLabel && (
-                      <div className="flex items-center gap-1" data-testid={`text-quote-engine-${q.id}`}
+                      <div className="flex items-center gap-1"
                         style={{ gridColumn: "1 / -1", fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={`Engine: ${engineLabel}`}>
                         <Cog size={9} style={{ flexShrink: 0 }} /> {engineLabel}
                       </div>
                     )}
                     {axleLabel && (
-                      <div className="flex items-center gap-1" data-testid={`text-quote-axles-${q.id}`}
+                      <div className="flex items-center gap-1"
                         style={{ gridColumn: "1 / -1", fontSize: "10px", color: "var(--vipr-text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={`Axles (front / rear): ${axleLabel}`}>
                         <Gauge size={9} style={{ flexShrink: 0 }} /> {axleLabel}
                       </div>
                     )}
-                    {q.quotedPrice && (
-                      <div className="flex items-center gap-1" style={{ fontSize: "10px", fontWeight: 600, color: "var(--vipr-orange)" }}>
-                        <DollarSign size={9} /> {q.quotedPrice.replace(/^\$/, "")}
-                      </div>
-                    )}
-                    {q.quoteDate && (
+                    {cityState && (
                       <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
-                        <Calendar size={9} /> Quoted {format(new Date(`${q.quoteDate}T00:00:00`), "MMM d, yyyy")}
+                        <MapPin size={9} /> {cityState}
+                      </div>
+                    )}
+                    {r.price && (
+                      <div className="flex items-center gap-1" style={{ fontSize: "10px", fontWeight: 600, color: "var(--vipr-orange)" }}>
+                        <DollarSign size={9} /> {formatPriceDisplay(r.price)}
+                      </div>
+                    )}
+                    {r.quoteDate && (
+                      <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-muted)" }}>
+                        <Calendar size={9} /> Quoted {format(new Date(`${r.quoteDate}T00:00:00`), "MMM d, yyyy")}
                       </div>
                     )}
                   </div>
 
-                  {/* Attached documents */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: "8px" }}>
-                    {q.files.map(f => (
-                      <a
-                        key={f.id}
-                        href={`${API_BASE}/api/quote-files/${f.id}/download`}
-                        className="flex items-center gap-1.5"
-                        style={{ fontSize: "10px", color: "var(--vipr-text)", textDecoration: "none", padding: "3px 6px", borderRadius: "4px", border: "1px solid var(--vipr-border)", background: "var(--vipr-surface-2)" }}
-                        data-testid={`link-download-${f.id}`}
-                        title={`Download ${f.originalName}`}
-                      >
-                        <FileText size={10} style={{ color: "var(--vipr-orange)", flexShrink: 0 }} />
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{f.originalName}</span>
-                        <span style={{ color: "var(--vipr-text-faint)", flexShrink: 0 }}>{formatFileSize(f.fileSize)}</span>
-                        <Download size={10} style={{ color: "var(--vipr-text-muted)", flexShrink: 0 }} />
-                      </a>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-faint)" }}>
-                      <Calendar size={9} />
-                      Added {format(new Date(q.createdAt), "MMM d, yyyy")}
-                    </div>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <button
-                          className="vipr-btn-ghost"
-                          style={{ padding: "4px 7px", color: "var(--vipr-red)", borderColor: "rgba(248,81,73,0.3)" }}
-                          data-testid={`button-delete-quote-${q.id}`}
+                  {/* Quote documents */}
+                  {isQuote && r.quote!.files.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: "8px" }}>
+                      {r.quote!.files.map(f => (
+                        <a
+                          key={f.id}
+                          href={`${API_BASE}/api/quote-files/${f.id}/download`}
+                          className="flex items-center gap-1.5"
+                          style={{ fontSize: "10px", color: "var(--vipr-text)", textDecoration: "none", padding: "3px 6px", borderRadius: "4px", border: "1px solid var(--vipr-border)", background: "var(--vipr-surface-2)" }}
+                          data-testid={`link-download-${f.id}`}
+                          title={`Download ${f.originalName}`}
                         >
-                          <Trash2 size={11} />
-                        </button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent style={{ background: "var(--vipr-surface-2)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text)" }}>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle style={{ color: "var(--vipr-text)" }}>Delete quote?</AlertDialogTitle>
-                          <AlertDialogDescription style={{ color: "var(--vipr-text-muted)" }}>
-                            "{q.title}" and its {q.files.length === 1 ? "document" : `${q.files.length} documents`} will be permanently removed for all users.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text)" }}>
-                            Cancel
-                          </AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => deleteMutation.mutate(q.id)}
-                            style={{ background: "var(--vipr-red)", color: "white" }}
+                          <FileText size={10} style={{ color: "var(--vipr-orange)", flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{f.originalName}</span>
+                          <span style={{ color: "var(--vipr-text-faint)", flexShrink: 0 }}>{formatFileSize(f.fileSize)}</span>
+                          <Download size={10} style={{ color: "var(--vipr-text-muted)", flexShrink: 0 }} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Footer — quotes: added date + delete; requests: load / attach / delete */}
+                  {isQuote ? (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-faint)" }}>
+                        <Calendar size={9} />
+                        Added {format(r.createdAt, "MMM d, yyyy")}
+                      </div>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            className="vipr-btn-ghost"
+                            style={{ padding: "4px 7px", color: "var(--vipr-red)", borderColor: "rgba(248,81,73,0.3)" }}
+                            data-testid={`button-delete-quote-${r.quote!.id}`}
                           >
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
+                            <Trash2 size={11} />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent style={{ background: "var(--vipr-surface-2)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text)" }}>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle style={{ color: "var(--vipr-text)" }}>Delete quote?</AlertDialogTitle>
+                            <AlertDialogDescription style={{ color: "var(--vipr-text-muted)" }}>
+                              "{r.title}" and its {r.quote!.files.length === 1 ? "document" : `${r.quote!.files.length} documents`} will be permanently removed for all users.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text)" }}>
+                              Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => deleteQuoteMutation.mutate(r.quote!.id)}
+                              style={{ background: "var(--vipr-red)", color: "white" }}
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1" style={{ fontSize: "10px", color: "var(--vipr-text-faint)", marginBottom: "8px" }}>
+                        <Calendar size={9} />
+                        Added {format(r.createdAt, "MMM d, yyyy")}
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          className="vipr-btn-primary"
+                          style={{ flex: 1, justifyContent: "center", padding: "5px 8px", fontSize: "11px" }}
+                          onClick={() => handleLoad(r.request!)}
+                          data-testid={`button-load-${r.request!.id}`}
+                        >
+                          <FolderOpen size={11} /> Load
+                        </button>
+                        <UploadQuoteDialog
+                          presetRequestId={r.request!.id}
+                          trigger={
+                            <button
+                              className="vipr-btn-ghost"
+                              style={{ padding: "5px 8px" }}
+                              title="Attach quote / spec documents"
+                              data-testid={`button-attach-${r.request!.id}`}
+                            >
+                              <Paperclip size={11} />
+                            </button>
+                          }
+                        />
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <button
+                              className="vipr-btn-ghost"
+                              style={{ padding: "5px 8px", color: "var(--vipr-red)", borderColor: "rgba(248,81,73,0.3)" }}
+                              data-testid={`button-delete-${r.request!.id}`}
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent style={{ background: "var(--vipr-surface-2)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text)" }}>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle style={{ color: "var(--vipr-text)" }}>Delete request?</AlertDialogTitle>
+                              <AlertDialogDescription style={{ color: "var(--vipr-text-muted)" }}>
+                                "{r.title}" will be permanently removed.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel style={{ background: "var(--vipr-surface)", border: "1px solid var(--vipr-border)", color: "var(--vipr-text)" }}>
+                                Cancel
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteRequestMutation.mutate(r.request!.id)}
+                                style={{ background: "var(--vipr-red)", color: "white" }}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
