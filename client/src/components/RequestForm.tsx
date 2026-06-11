@@ -104,6 +104,60 @@ export function scheduleFormLoad(form: FormState, id: number) {
   pendingLoad = { form, id };
 }
 
+/* ── Draft auto-save ───────────────────────────────────────────────────────
+ * The in-progress request is mirrored to localStorage on every change so a
+ * crash, refresh, or accidentally-closed tab never loses work — on the next
+ * visit the form picks up exactly where it left off. Blank forms are never
+ * persisted, so an untouched form leaves no draft behind.                    */
+const DRAFT_STORAGE_KEY = "vipr-request-draft";
+
+type Draft = { form: FormState; editingId?: number };
+
+// "Blank" = nothing meaningful entered. The only pre-filled fields are the two
+// dates (they default to today), so they don't count toward a draft being real.
+function isBlankForm(form: FormState): boolean {
+  return (Object.keys(EMPTY_FORM) as (keyof FormState)[]).every(k => {
+    if (k === "requestDate" || k === "dateRequired") return true;
+    return form[k] === EMPTY_FORM[k];
+  });
+}
+
+function loadDraft(): Draft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<Draft>;
+    if (!parsed?.form || isBlankForm(parsed.form as FormState)) return null;
+    // Merge over EMPTY_FORM so a draft from an older build keeps every field.
+    return {
+      form: { ...EMPTY_FORM, ...parsed.form },
+      editingId: typeof parsed.editingId === "number" ? parsed.editingId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(form: FormState, editingId?: number) {
+  try {
+    if (isBlankForm(form)) {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ form, editingId }));
+  } catch {
+    /* storage unavailable or over quota — drafting is best-effort */
+  }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 /* ── Primitive field components ─────────────────────────────────────────── */
 
 function VLabel({ label, code, required }: { label: string; code?: string; required?: boolean }) {
@@ -267,14 +321,30 @@ export default function RequestForm() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<number | undefined>();
 
-  // Consume any pending load written before this mount (from the Saved & Quoted tab switch)
+  // On mount, restore the form. An explicit load from the Saved & Quoted tab
+  // takes precedence; otherwise pick up any auto-saved draft so the user
+  // resumes exactly where they left off.
   useEffect(() => {
     if (pendingLoad) {
       setForm(pendingLoad.form);
       setEditingId(pendingLoad.id);
       pendingLoad = null;
+      return;
     }
-  }, []);
+    const draft = loadDraft();
+    if (draft) {
+      setForm(draft.form);
+      setEditingId(draft.editingId);
+      toast({ title: "Draft restored", description: "Picked up your unsaved request where you left off." });
+    }
+  }, [toast]);
+
+  // Auto-save the in-progress request to localStorage on every change (lightly
+  // debounced). Blank forms are skipped and clear any existing draft.
+  useEffect(() => {
+    const t = setTimeout(() => saveDraft(form, editingId), 400);
+    return () => clearTimeout(t);
+  }, [form, editingId]);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const { data: configs = [] } = useQuery<ChassisConfig[]>({ queryKey: ["/api/configs"] });
@@ -601,7 +671,7 @@ export default function RequestForm() {
 
         {/* ── Toolbar ──────────────────────────────────────────────────────── */}
         <div className="no-print flex flex-wrap items-center gap-2 mb-4">
-          <button className="vipr-btn-ghost" onClick={() => { setForm(EMPTY_FORM); setEditingId(undefined); }}>
+          <button className="vipr-btn-ghost" onClick={() => { setForm(EMPTY_FORM); setEditingId(undefined); clearDraft(); }}>
             <RefreshCw size={12} /> New Form
           </button>
           <button
