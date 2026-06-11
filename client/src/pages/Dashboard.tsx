@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, Settings, History, Flame, Sun, Moon, FileText } from "lucide-react";
+import { ClipboardList, Settings, Flame, Sun, Moon, FileText } from "lucide-react";
 import RequestForm from "@/components/RequestForm";
-import SavedRequests from "@/components/SavedRequests";
 import PreviouslyQuoted from "@/components/PreviouslyQuoted";
 import ConfigAdmin from "@/components/ConfigAdmin";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 
 const TABS = [
   { id: "request", label: "New Request",       icon: ClipboardList },
-  { id: "history", label: "Saved Requests",    icon: History },
-  { id: "quoted",  label: "Previously Quoted", icon: FileText },
+  { id: "quoted",  label: "Saved & Quoted",    icon: FileText },
   { id: "admin",   label: "Configure Options", icon: Settings },
 ] as const;
 
@@ -122,8 +120,7 @@ export default function Dashboard() {
       <main className="flex-1 overflow-auto">
         <div className="p-4">
           {activeTab === "request" && <RequestForm />}
-          {activeTab === "history" && <SavedRequests onLoad={() => setActiveTab("request")} />}
-          {activeTab === "quoted"  && <PreviouslyQuoted />}
+          {activeTab === "quoted"  && <PreviouslyQuoted onLoad={() => setActiveTab("request")} />}
           {activeTab === "admin"   && <ConfigAdmin />}
         </div>
       </main>
